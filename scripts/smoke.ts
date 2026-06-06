@@ -15,6 +15,7 @@ import { IntegrationRegistry } from "../src/integrations/registry.ts";
 import { clockIntegration } from "../src/integrations/examples/clock.ts";
 import { ConversationSessions } from "../src/sessions/store.ts";
 import { extractAssistantText, toDiscordMessages } from "../src/discord/delivery.ts";
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
 const tmp = mkdtempSync(join(tmpdir(), "poke-smoke-"));
@@ -37,14 +38,14 @@ console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);
 const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
 const KEY = "smoke-channel";
 
-async function ask(text: string): Promise<string[]> {
+async function ask(text: string, images?: ImageContent[]): Promise<string[]> {
   let bubbles: string[] = [];
   await conversations.run(KEY, async (session) => {
-    await session.prompt(text);
+    await session.prompt(text, images ? { images } : undefined);
     const reply = extractAssistantText(session.getLastAssistantMessage());
     bubbles = toDiscordMessages(reply, config.maxReplyMessages);
   });
-  console.log(`\n> ${text}`);
+  console.log(`\n> ${text}${images?.length ? ` [+${images.length} image]` : ""}`);
   bubbles.forEach((b, i) => console.log(`  [bubble ${i + 1}] ${b}`));
   return bubbles;
 }
@@ -83,6 +84,18 @@ assert(!/bar[ıi]ş/i.test(afterReset), "reset wiped the conversation memory");
 const fenced = "here you go\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\ndone";
 const split = toDiscordMessages(fenced, 5);
 assert(split.some((m) => m.includes("```ts") && m.includes("const b = 2;")), "keeps a fenced code block intact");
+
+// 7) Vision: an image attachment actually reaches the model (only when it accepts images).
+if (runtime.model.input.includes("image")) {
+  // A 48x48 solid crimson PNG, base64-encoded (see src/discord/attachments.ts for the real path).
+  const crimsonPng =
+    "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAVElEQVR4nO3UUQ0AIAzEUEQgB/8qJgYXlI+XTMByabtmn69u5R94yEIYYlkdHh2yEIZYVodHhyyEIZbV4dEhC2GIZXV4dMhCGGJZHR4dshCG5q1lF0KTjJdAHIiQAAAAAElFTkSuQmCC";
+  const image: ImageContent = { type: "image", data: crimsonPng, mimeType: "image/png" };
+  const seen = (await ask("in one word, what color is this image?", [image])).join(" ").toLowerCase();
+  assert(/red|crimson|pink|maroon|rose/.test(seen), "describes the attached image (sees the red square)");
+} else {
+  console.log("\n  (skipping vision check — resolved model has no image input)");
+}
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");

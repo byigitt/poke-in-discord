@@ -54,6 +54,9 @@ bun start                 # or: bun dev  (watch mode)
 - **DM the bot** — it always replies.
 - **In a server** — it replies when you `@mention` it (set `POKE_RESPOND_TO=all`
   to answer everything in channels it can see).
+- **Send a photo** — attach an image (jpeg/png/gif/webp), in a DM or alongside an
+  `@mention`, and the bot actually looks at it. Needs a vision-capable model
+  (the default Claude models are).
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -71,6 +74,8 @@ All via `.env` (see `.env.example`):
 | `POKE_SESSION_DIR` | `.sessions` | Where chat history is persisted. |
 | `POKE_SESSION_IDLE_MINUTES` | `30` | Drop an idle chat from memory (history stays on disk). |
 | `POKE_MAX_REPLY_MESSAGES` | `5` | Bubble target for splitting a reply. |
+| `POKE_MAX_IMAGE_MB` | `8` | Largest image attachment downloaded and forwarded to a vision model. |
+| `POKE_MAX_IMAGES` | `4` | Most images forwarded from a single message. |
 | `POKE_AGENT_DIR` | `~/.omp/agent` | Override pi's credential/model dir. |
 
 ## Extending it (the whole point)
@@ -140,6 +145,7 @@ src/
     store.ts                per-conversation serialization lanes + idle eviction
   discord/
     delivery.ts             Poke-style message splitting (+ unit tests)
+    attachments.ts          image-attachment selection + fetch (+ unit tests)
     bot.ts                  gateway wiring, gating, typing, reset
   index.ts                  entrypoint
 scripts/

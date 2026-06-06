@@ -27,7 +27,9 @@ async function main(): Promise<void> {
   const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
   conversations.start();
 
-  const bot = new DiscordBot(config, conversations, logger);
+  const supportsImages = runtime.model.input.includes("image");
+  logger.info("vision support", { supportsImages });
+  const bot = new DiscordBot(config, conversations, supportsImages, logger);
   await bot.start();
 
   let shuttingDown = false;

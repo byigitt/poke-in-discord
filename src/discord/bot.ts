@@ -9,11 +9,13 @@ import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import { type OutboundChannel, extractAssistantText, sendBubbles, toDiscordMessages } from "./delivery.ts";
 import type { ConversationSessions } from "../sessions/store.ts";
+import { fetchImages, selectImages, type SelectedImage } from "./attachments.ts";
 
 /** Typed verbatim by the user to wipe a conversation's memory. */
 const RESET_PHRASES = ["reset", "/reset", "new chat", "start over", "forget it", "wipe"] as const;
 
 const TYPING_REFRESH_MS = 8_000;
+const IMAGE_FETCH_TIMEOUT_MS = 15_000;
 
 export class DiscordBot {
   private readonly client: Client;
@@ -23,6 +25,8 @@ export class DiscordBot {
   constructor(
     private readonly config: Config,
     private readonly conversations: ConversationSessions,
+    /** Whether the resolved model accepts image input; gates attachment forwarding. */
+    private readonly supportsImages: boolean,
     logger: Logger,
   ) {
     this.logger = logger.child("discord");
@@ -56,7 +60,7 @@ export class DiscordBot {
   }
 
   /** Decide whether to engage, then strip the address tokens to the real text. */
-  private intent(message: Message): { key: string; text: string } | null {
+  private intent(message: Message): { key: string; text: string; images: SelectedImage[] } | null {
     if (message.author.bot) return null;
     if (!message.channel.isTextBased()) return null;
 
@@ -72,19 +76,27 @@ export class DiscordBot {
     }
     text = text.trim();
 
-    // A bare ping ("@bot") with no words is just "hey".
-    if (!text) {
+    const images = this.supportsImages
+      ? selectImages(message.attachments.values(), {
+          maxCount: this.config.maxImagesPerMessage,
+          maxBytes: this.config.imageMaxBytes,
+        })
+      : [];
+
+    // Nothing to go on: a bare ping ("@bot") or empty DM is just "hey"; an
+    // unaddressed, content-less channel message is ignored. An image counts as content.
+    if (!text && images.length === 0) {
       if (isDM || mentioned) text = "hey";
       else return null;
     }
 
-    return { key: message.channelId, text };
+    return { key: message.channelId, text, images };
   }
 
   private async onMessage(message: Message): Promise<void> {
     const intent = this.intent(message);
     if (!intent) return;
-    const { key, text } = intent;
+    const { key, text, images } = intent;
     const channel = message.channel as unknown as OutboundChannel;
 
     if (RESET_PHRASES.includes(text.toLowerCase() as (typeof RESET_PHRASES)[number])) {
@@ -92,7 +104,7 @@ export class DiscordBot {
       return;
     }
 
-    this.logger.debug("handling message", { key, length: text.length });
+    this.logger.debug("handling message", { key, length: text.length, images: images.length });
 
     try {
       await this.conversations.run(key, async (session) => {
@@ -100,7 +112,23 @@ export class DiscordBot {
         const refresh = setInterval(() => void channel.sendTyping().catch(() => {}), TYPING_REFRESH_MS);
         let reply: string;
         try {
-          await session.prompt(text);
+          // Fetch inside the lane so the typing indicator covers the download too.
+          const attached =
+            images.length > 0
+              ? await fetchImages(images, {
+                  maxBytes: this.config.imageMaxBytes,
+                  timeoutMs: IMAGE_FETCH_TIMEOUT_MS,
+                  logger: this.logger,
+                })
+              : [];
+          // `text` is only empty for an image-only message; if every image also
+          // failed to download, there is nothing to send.
+          if (!text && attached.length === 0) {
+            this.logger.warn("nothing readable to send", { key, attachments: images.length });
+            await channel.send("hmm, I couldn't open that image — mind sending it again?");
+            return;
+          }
+          await session.prompt(text, attached.length > 0 ? { images: attached } : undefined);
           reply = extractAssistantText(session.getLastAssistantMessage());
         } finally {
           clearInterval(refresh);

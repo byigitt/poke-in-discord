@@ -29,6 +29,10 @@ export interface Config {
   readonly sessionIdleMs: number;
   /** Cap on how many separate Discord messages a single reply may become. */
   readonly maxReplyMessages: number;
+  /** Largest image attachment (bytes) the bot will download and forward to a vision model. */
+  readonly imageMaxBytes: number;
+  /** Most image attachments forwarded from a single message. */
+  readonly maxImagesPerMessage: number;
   /** Override for pi's agent config dir (credentials/models). undefined → ~/.omp/agent. */
   readonly agentDir: string | undefined;
 }
@@ -75,6 +79,8 @@ export function loadConfig(): Config {
     sessionDir: optional("POKE_SESSION_DIR", ".sessions"),
     sessionIdleMs: positiveInt("POKE_SESSION_IDLE_MINUTES", 30) * 60_000,
     maxReplyMessages: positiveInt("POKE_MAX_REPLY_MESSAGES", 5),
+    imageMaxBytes: positiveInt("POKE_MAX_IMAGE_MB", 8) * 1024 * 1024,
+    maxImagesPerMessage: positiveInt("POKE_MAX_IMAGES", 4),
     agentDir: process.env.POKE_AGENT_DIR?.trim() || undefined,
   };
 }
