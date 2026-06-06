@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.local
+
+# Per-conversation agent session files (chat history / memory)
+.sessions/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
