@@ -164,7 +164,7 @@ moment you enable one, the assistant truthfully advertises it and can call it.
 
    ```ts
    import { z } from "zod/v4";
-   import { type Integration, defineTool } from "../types.ts";
+   import { type Integration, defineTool, toolText } from "../types.ts";
 
    export const googleCalendar: Integration = {
      name: "google-calendar",
@@ -178,7 +178,7 @@ moment you enable one, the assistant truthfully advertises it and can call it.
            parameters: z.object({ days: z.number().int().min(1).max(30).default(7) }),
            async execute(_id, params) {
              // ...call the Google API...
-             return { content: [{ type: "text", text: "..." }] };
+             return toolText("...");
            },
          }),
        ];
@@ -211,6 +211,12 @@ key, or a `connection` for OAuth apps (Google Calendar/Gmail show the pattern). 
 get the current user's token. No connect-flow plumbing leaks into the integration.
 For apps you don't want to hand-write, a `.mcp.json` brings their tools in via MCP.
 
+**Conventions.** Tool results use the shared `toolText` / `toolError` helpers — no
+per-integration reply boilerplate. Each module has a colocated `*.test.ts` named
+after it, and tests share stubs from `src/test-support.ts` (`silentLogger`,
+`textOf`, `fakeIntegrationContext`, `fakeToolContext`). Run `bun run check`
+(typecheck + tests) before you ship.
+
 ## Project layout
 
 ```
@@ -219,6 +225,7 @@ src/
   logger.ts                 minimal leveled logger
   outbox.ts                 staged files → uploaded with the next reply
   actor.ts                  the current speaker + channel each turn (connections, reminders)
+  test-support.ts           shared test stubs: silentLogger, textOf, fakes (not shipped)
   connections/              account-linking framework
     oauth.ts                OAuth 2.0 + PKCE helpers, ConnectionSpec, resolveProvider
     store.ts                per-user token store (SQLite)
@@ -235,9 +242,10 @@ src/
     runtime.ts              pi auth + model discovery + model resolution
     persona.ts              the Poke voice (Discord-adapted), capability-injected
   integrations/             core stays flat; each integration gets a folder
-    types.ts                Integration / IntegrationContext / defineTool
+    types.ts                Integration / IntegrationContext / defineTool + toolText/toolError
     registry.ts             integrations → persona capabilities + deduped tools
-    index.ts                catalog + env-gated selection (selectConfigured)
+    index.ts                the catalog (ALL_INTEGRATIONS)
+    select.ts               env-gated selection (selectConfigured)
     filesystem/             browse / search / read / write / send files on the host
       index.ts              the integration
       filesystem.test.ts    its unit tests
@@ -266,7 +274,7 @@ scripts/
 ## Verify
 
 ```bash
-bun run typecheck
-bun test                    # deterministic delivery tests
-bun run scripts/smoke.ts    # optional: live check of auth + reply + memory + a tool call
+bun run check    # typecheck + all tests, one command
+bun test         # just the deterministic tests
+bun run smoke    # optional: live check of auth + reply + memory + tools (needs pi login)
 ```

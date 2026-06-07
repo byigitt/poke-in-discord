@@ -2,13 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "../logger.ts";
+import { silentLogger } from "../test-support.ts";
 import { ConnectionManager } from "./manager.ts";
 import type { OAuthProvider } from "./oauth.ts";
 import { OAuthCallbackServer } from "./server.ts";
 import { TokenStore } from "./store.ts";
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
 
 const provider: OAuthProvider = {
   id: "google-calendar",
@@ -27,9 +26,9 @@ let base: string;
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "poke-srv-"));
   store = new TokenStore(join(dir, "connections.db"));
-  const manager = new ConnectionManager(store, "http://localhost/oauth/callback", silent);
+  const manager = new ConnectionManager(store, "http://localhost/oauth/callback", silentLogger);
   manager.registerProvider(provider);
-  server = new OAuthCallbackServer(manager, 0, silent); // port 0 → OS assigns a free port
+  server = new OAuthCallbackServer(manager, 0, silentLogger); // port 0 → OS assigns a free port
   server.start();
   base = `http://localhost:${server.port}`;
 });

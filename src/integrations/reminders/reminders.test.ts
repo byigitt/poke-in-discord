@@ -2,23 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CustomToolContext } from "@oh-my-pi/pi-coding-agent";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import type { Config } from "../../config.ts";
-import type { Logger } from "../../logger.ts";
-import type { PiRuntime } from "../../pi/runtime.ts";
 import { ActorRegistry } from "../../actor.ts";
-import type { ConnectionManager } from "../../connections/manager.ts";
-import { ReplyOutbox } from "../../outbox.ts";
 import { ReminderStore } from "../../reminders/store.ts";
-import type { CustomTool, IntegrationContext } from "../types.ts";
+import type { CustomTool } from "../types.ts";
+import { fakeIntegrationContext, fakeToolContext, textOf } from "../../test-support.ts";
 import { remindersIntegration } from "./index.ts";
-
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
-
-function textOf(result: { content: { type: string }[] }): string {
-  return result.content.map((c) => (c.type === "text" ? (c as TextContent).text : "")).join("");
-}
 
 const SESSION = "/sessions/chan.jsonl";
 let dir: string;
@@ -30,15 +18,7 @@ beforeEach(async () => {
   store = new ReminderStore(join(dir, "reminders.db"));
   const actor = new ActorRegistry();
   actor.enter(SESSION, { userId: "u1", channelId: "c1" });
-  const ctx: IntegrationContext = {
-    runtime: undefined as unknown as PiRuntime,
-    config: {} as unknown as Config,
-    logger: silent,
-    outbox: new ReplyOutbox(),
-    connections: undefined as unknown as ConnectionManager,
-    actor,
-    reminders: store,
-  };
+  const ctx = fakeIntegrationContext({ actor, reminders: store });
   tools = new Map((await remindersIntegration.tools(ctx)).map((t) => [t.name, t]));
 });
 
@@ -48,10 +28,8 @@ afterEach(() => {
 });
 
 // A turn whose actor is registered (default) vs an unknown session (no actor).
-const known = (): CustomToolContext =>
-  ({ sessionManager: { getSessionFile: () => SESSION, getSessionId: () => "sid" } }) as unknown as CustomToolContext;
-const anonymous = (): CustomToolContext =>
-  ({ sessionManager: { getSessionFile: () => "/other.jsonl", getSessionId: () => "x" } }) as unknown as CustomToolContext;
+const known = () => fakeToolContext({ sessionFile: SESSION, sessionId: "sid" });
+const anonymous = () => fakeToolContext({ sessionFile: "/other.jsonl", sessionId: "x" });
 
 describe("set_reminder", () => {
   test("schedules a relative reminder for the current user + channel", async () => {

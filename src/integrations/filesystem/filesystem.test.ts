@@ -2,24 +2,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CustomToolContext } from "@oh-my-pi/pi-coding-agent";
-import type { TextContent } from "@oh-my-pi/pi-ai";
 import type { Config } from "../../config.ts";
-import type { Logger } from "../../logger.ts";
-import type { PiRuntime } from "../../pi/runtime.ts";
 import { ReplyOutbox } from "../../outbox.ts";
-import type { ActorRegistry } from "../../actor.ts";
-import type { ConnectionManager } from "../../connections/manager.ts";
-import type { ReminderStore } from "../../reminders/store.ts";
-import type { CustomTool, IntegrationContext } from "../types.ts";
+import type { CustomTool } from "../types.ts";
+import { fakeIntegrationContext, fakeToolContext, textOf } from "../../test-support.ts";
 import { filesystemIntegration } from "./index.ts";
-
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
-
-/** A tool result reduced to its visible text. */
-function textOf(result: { content: { type: string }[] }): string {
-  return result.content.map((c) => (c.type === "text" ? (c as TextContent).text : "")).join("");
-}
 
 const UPLOAD_CAP = 1024;
 
@@ -40,16 +27,10 @@ beforeAll(async () => {
   symlinkSync(join(parent, "secret.txt"), join(root, "leak.txt")); // a link escaping the root
 
   outbox = new ReplyOutbox();
-  const ctx: IntegrationContext = {
-    runtime: undefined as unknown as PiRuntime, // unused by the file tools
+  const ctx = fakeIntegrationContext({
     config: { filesRoot: root, fileMaxBytes: UPLOAD_CAP } as unknown as Config,
-    logger: silent,
     outbox,
-    // The file tools use neither; satisfy the context shape without a real DB.
-    connections: undefined as unknown as ConnectionManager,
-    actor: undefined as unknown as ActorRegistry,
-    reminders: undefined as unknown as ReminderStore,
-  };
+  });
   tools = new Map((await filesystemIntegration.tools(ctx)).map((t) => [t.name, t]));
 });
 
@@ -57,8 +38,7 @@ afterAll(() => {
   rmSync(parent, { recursive: true, force: true });
 });
 
-const session = (file?: string): CustomToolContext =>
-  ({ sessionManager: { getSessionFile: () => file } }) as unknown as CustomToolContext;
+const session = (sessionFile?: string) => fakeToolContext({ sessionFile });
 
 async function run(name: string, params: unknown, sessionFile?: string) {
   const tool = tools.get(name);

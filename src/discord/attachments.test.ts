@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Logger } from "../logger.ts";
 import { type AttachmentLike, fetchImages, selectImages, type SelectedImage } from "./attachments.ts";
-
-function makeNullLogger(): Logger {
-  const noop = (): void => {};
-  return { debug: noop, info: noop, warn: noop, error: noop, child: makeNullLogger };
-}
+import { silentLogger } from "../test-support.ts";
 
 const LIMITS = { maxCount: 4, maxBytes: 1_000 };
 
@@ -70,7 +65,7 @@ describe("selectImages", () => {
 });
 
 describe("fetchImages", () => {
-  const logger = makeNullLogger();
+  const logger = silentLogger;
   const image = (name: string, url: string): SelectedImage => ({ url, name, size: 4, mimeType: "image/png" });
 
   function fetchReturning(map: Record<string, Response>): typeof fetch {

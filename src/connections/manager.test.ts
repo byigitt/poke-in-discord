@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "../logger.ts";
+import { silentLogger } from "../test-support.ts";
 import { ConnectionManager } from "./manager.ts";
 import type { OAuthProvider } from "./oauth.ts";
 import { TokenStore } from "./store.ts";
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
 
 const provider: OAuthProvider = {
   id: "google-calendar",
@@ -26,7 +25,7 @@ let manager: ConnectionManager;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "poke-mgr-"));
   store = new TokenStore(join(dir, "connections.db"));
-  manager = new ConnectionManager(store, "http://localhost:8787/oauth/callback", silent);
+  manager = new ConnectionManager(store, "http://localhost:8787/oauth/callback", silentLogger);
   manager.registerProvider(provider);
 });
 

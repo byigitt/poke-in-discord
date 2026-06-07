@@ -13,24 +13,12 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import { type Integration, defineTool } from "../types.ts";
+import { type Integration, defineTool, toolText, toolError } from "../types.ts";
 
 /** Env flag that gates the whole integration. Set it (to anything) to enable. */
 export const SHELL_ENABLED_ENV = "POKE_SHELL_ENABLED";
 /** Trim combined output to this, so a chatty command can't swamp the reply. */
 const OUTPUT_CAP = 16 * 1024;
-
-interface ShellReply {
-  content: TextContent[];
-  isError?: boolean;
-}
-function ok(text: string): ShellReply {
-  return { content: [{ type: "text", text }] };
-}
-function fail(text: string): ShellReply {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 function resolveCwd(input: string): string {
   const expanded = input.startsWith("~") ? join(homedir(), input.slice(1)) : input;
@@ -54,7 +42,7 @@ export const shellIntegration: Integration = {
         }),
         async execute(_id, params) {
           const command = params.command.trim();
-          if (!command) return fail("give me a command to run.");
+          if (!command) return toolError("give me a command to run.");
           const cwd = resolveCwd((params.cwd ?? ctx.config.shellCwd).trim() || ctx.config.shellCwd);
 
           try {
@@ -88,9 +76,9 @@ export const shellIntegration: Integration = {
             const header = timedOut
               ? `(timed out after ${ctx.config.shellTimeoutMs / 1000}s, killed) exit ${code}`
               : `exit ${code}`;
-            return ok(`${header}\n${body || "(no output)"}`);
+            return toolText(`${header}\n${body || "(no output)"}`);
           } catch (error) {
-            return fail(`couldn't run that: ${error instanceof Error ? error.message : String(error)}`);
+            return toolError(`couldn't run that: ${error instanceof Error ? error.message : String(error)}`);
           }
         },
       }),

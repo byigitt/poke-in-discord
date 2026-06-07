@@ -8,8 +8,7 @@
  * and building an RFC 2822 message to send.
  */
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import { type Integration, currentToken, defineTool } from "../types.ts";
+import { type Integration, currentToken, defineTool, toolText, toolError } from "../types.ts";
 import { googleApi } from "../google/api.ts";
 import { googleConnection } from "../google/oauth.ts";
 
@@ -18,16 +17,6 @@ const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const RECONNECT = "your Gmail connection expired — reconnect by saying `connect gmail`.";
 const NOT_CONNECTED = "connect your Gmail first — say `connect gmail`.";
 
-interface GmailReply {
-  content: TextContent[];
-  isError?: boolean;
-}
-function ok(text: string): GmailReply {
-  return { content: [{ type: "text", text }] };
-}
-function fail(text: string): GmailReply {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 interface GmailHeader {
   name: string;
@@ -105,15 +94,15 @@ export const gmailIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const query = new URLSearchParams({ maxResults: String(params.max_results) });
           if (params.query) query.set("q", params.query);
           const list = await googleApi<GmailList>(token, `${API}/messages?${query}`);
-          if (!list.ok) return fail(list.status === 401 ? RECONNECT : `couldn't search your mail (${list.status}).`);
+          if (!list.ok) return toolError(list.status === 401 ? RECONNECT : `couldn't search your mail (${list.status}).`);
 
           const ids = list.data.messages ?? [];
-          if (ids.length === 0) return ok("no matching emails.");
+          if (ids.length === 0) return toolText("no matching emails.");
 
           const messages = await Promise.all(
             ids.map((m) =>
@@ -129,7 +118,7 @@ export const gmailIntegration: Integration = {
             return [`• ${header(message, "Subject") || "(no subject)"} — ${header(message, "From")} (id: ${message.id})\n  ${message.snippet ?? ""}`];
           });
           ctx.logger.info("searched emails", { count: lines.length });
-          return ok(lines.join("\n\n"));
+          return toolText(lines.join("\n\n"));
         },
       }),
 
@@ -142,22 +131,20 @@ export const gmailIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const result = await googleApi<GmailMessage>(token, `${API}/messages/${params.id}?format=full`);
-          if (!result.ok) return fail(result.status === 401 ? RECONNECT : `couldn't open that email (${result.status}).`);
+          if (!result.ok) return toolError(result.status === 401 ? RECONNECT : `couldn't open that email (${result.status}).`);
 
           const message = result.data;
           const body = plainBody(message.payload) || message.snippet || "(no readable text)";
-          return ok(
-            [
-              `From: ${header(message, "From")}`,
-              `Subject: ${header(message, "Subject")}`,
-              `Date: ${header(message, "Date")}`,
-              "",
-              body.slice(0, 4000),
-            ].join("\n"),
-          );
+          return toolText([
+            `From: ${header(message, "From")}`,
+            `Subject: ${header(message, "Subject")}`,
+            `Date: ${header(message, "Date")}`,
+            "",
+            body.slice(0, 4000),
+          ].join("\n"));
         },
       }),
 
@@ -175,17 +162,17 @@ export const gmailIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const raw = buildRawMessage(params);
           const result = await googleApi<{ id?: string }>(token, `${API}/messages/send`, {
             method: "POST",
             body: JSON.stringify({ raw }),
           });
-          if (!result.ok) return fail(result.status === 401 ? RECONNECT : `couldn't send that email (${result.status}).`);
+          if (!result.ok) return toolError(result.status === 401 ? RECONNECT : `couldn't send that email (${result.status}).`);
 
           ctx.logger.info("sent email");
-          return ok(`sent to ${params.to}.`);
+          return toolText(`sent to ${params.to}.`);
         },
       }),
     ];

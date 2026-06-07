@@ -2,11 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "../logger.ts";
+import { silentLogger } from "../test-support.ts";
 import { ReminderScheduler } from "./scheduler.ts";
 import { type Reminder, ReminderStore } from "./store.ts";
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
 
 function delay(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -31,7 +30,7 @@ describe("ReminderScheduler.tick", () => {
   test("delivers due reminders and removes them", async () => {
     store.add({ userId: "u", channelId: "c", text: "due", dueAt: Date.now() - 1000 });
     const delivered: Reminder[] = [];
-    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silent);
+    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silentLogger);
 
     await scheduler.tick();
 
@@ -42,7 +41,7 @@ describe("ReminderScheduler.tick", () => {
   test("leaves not-yet-due reminders alone", async () => {
     store.add({ userId: "u", channelId: "c", text: "later", dueAt: Date.now() + 60_000 });
     const delivered: Reminder[] = [];
-    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silent);
+    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silentLogger);
 
     await scheduler.tick();
 
@@ -54,7 +53,7 @@ describe("ReminderScheduler.tick", () => {
     store.add({ userId: "u", channelId: "c", text: "boom", dueAt: Date.now() - 1 });
     const scheduler = new ReminderScheduler(store, async () => {
       throw new Error("delivery failed");
-    }, silent);
+    }, silentLogger);
 
     await scheduler.tick();
 
@@ -72,7 +71,7 @@ describe("ReminderScheduler.tick", () => {
       deliveries++;
       await delay(30);
       active--;
-    }, silent);
+    }, silentLogger);
 
     await Promise.all([scheduler.tick(), scheduler.tick()]);
 
@@ -83,7 +82,7 @@ describe("ReminderScheduler.tick", () => {
   test("recurring reminders are rescheduled to the future, not removed", async () => {
     store.add({ userId: "u", channelId: "c", text: "daily", dueAt: Date.now() - 1000, cron: "*/5 * * * *" });
     const delivered: Reminder[] = [];
-    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silent);
+    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silentLogger);
 
     await scheduler.tick();
     expect(delivered).toHaveLength(1);

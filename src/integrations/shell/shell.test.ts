@@ -2,21 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { CustomToolContext } from "@oh-my-pi/pi-coding-agent";
-import type { TextContent } from "@oh-my-pi/pi-ai";
 import type { Config } from "../../config.ts";
-import type { Logger } from "../../logger.ts";
-import type { IntegrationContext } from "../types.ts";
+import { fakeIntegrationContext, fakeToolContext, textOf } from "../../test-support.ts";
 import { shellIntegration } from "./index.ts";
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
-
-function textOf(result: { content: { type: string }[] }): string {
-  return result.content.map((c) => (c.type === "text" ? (c as TextContent).text : "")).join("");
-}
-
 // run_command ignores the per-call CustomToolContext.
-const toolCtx = {} as CustomToolContext;
+const toolCtx = fakeToolContext();
 
 let dir: string;
 
@@ -29,10 +20,9 @@ afterEach(() => {
 });
 
 async function runCommand(config: Partial<Config>, params: unknown) {
-  const ctx = {
+  const ctx = fakeIntegrationContext({
     config: { shellCwd: dir, shellTimeoutMs: 5000, ...config } as unknown as Config,
-    logger: silent,
-  } as unknown as IntegrationContext;
+  });
   const tools = await shellIntegration.tools(ctx);
   const tool = tools.find((t) => t.name === "run_command");
   if (!tool) throw new Error("run_command not built");

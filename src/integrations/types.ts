@@ -12,7 +12,7 @@
  * from the schema.
  */
 import type { CustomTool, CustomToolContext } from "@oh-my-pi/pi-coding-agent";
-import type { TSchema } from "@oh-my-pi/pi-ai";
+import type { TSchema, TextContent } from "@oh-my-pi/pi-ai";
 import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { PiRuntime } from "../pi/runtime.ts";
@@ -24,6 +24,22 @@ import type { ReminderStore } from "../reminders/store.ts";
 
 /** A model-callable tool. Re-exported so integrations import one name from here. */
 export type { CustomTool } from "@oh-my-pi/pi-coding-agent";
+
+/** What a tool returns: plain text the model reads, optionally flagged as a failure. */
+export interface ToolReply {
+  content: TextContent[];
+  isError?: boolean;
+}
+
+/** A successful, plain-text tool result. */
+export function toolText(text: string): ToolReply {
+  return { content: [{ type: "text", text }] };
+}
+
+/** A failed tool result — same text channel, flagged so the model knows it didn't work. */
+export function toolError(text: string): ToolReply {
+  return { content: [{ type: "text", text }], isError: true };
+}
 
 /** Everything an integration may need while constructing its tools. */
 export interface IntegrationContext {

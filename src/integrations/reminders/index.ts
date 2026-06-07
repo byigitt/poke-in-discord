@@ -9,20 +9,9 @@
  * the system prompt gives the model.
  */
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import { type Integration, currentActor, defineTool } from "../types.ts";
+import { type Integration, currentActor, defineTool, toolError, toolText } from "../types.ts";
 import { cronNext } from "../../reminders/cron.ts";
 
-interface ReminderReply {
-  content: TextContent[];
-  isError?: boolean;
-}
-function ok(text: string): ReminderReply {
-  return { content: [{ type: "text", text }] };
-}
-function fail(text: string): ReminderReply {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 const NO_ACTOR = "I can't tell who to remind right now — try again in a moment.";
 
@@ -48,26 +37,26 @@ export const remindersIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const actor = currentActor(ctx, toolCtx);
-          if (!actor) return fail(NO_ACTOR);
+          if (!actor) return toolError(NO_ACTOR);
 
           const now = Date.now();
           let dueAt: number;
           if (params.cron) {
             const next = cronNext(params.cron, new Date(now));
-            if (!next) return fail("I couldn't read that schedule — use a cron like `0 9 * * *` (daily 9am).");
+            if (!next) return toolError("I couldn't read that schedule — use a cron like `0 9 * * *` (daily 9am).");
             dueAt = next.getTime();
           } else if (params.in_minutes !== undefined) {
             dueAt = now + params.in_minutes * 60_000;
           } else if (params.due_at) {
             const parsed = Date.parse(params.due_at);
             if (Number.isNaN(parsed)) {
-              return fail("I couldn't read that time — give `in_minutes`, `due_at` (RFC3339), or a `cron`.");
+              return toolError("I couldn't read that time — give `in_minutes`, `due_at` (RFC3339), or a `cron`.");
             }
             dueAt = parsed;
           } else {
-            return fail("when should I remind you? give `in_minutes`, a `due_at`, or a `cron`.");
+            return toolError("when should I remind you? give `in_minutes`, a `due_at`, or a `cron`.");
           }
-          if (dueAt <= now + 1000) return fail("that time's already passed — pick something in the future.");
+          if (dueAt <= now + 1000) return toolError("that time's already passed — pick something in the future.");
 
           const reminder = ctx.reminders.add({
             userId: actor.userId,
@@ -77,11 +66,9 @@ export const remindersIntegration: Integration = {
             cron: params.cron,
           });
           ctx.logger.info("reminder set", { id: reminder.id, dueAt, cron: params.cron });
-          return ok(
-            params.cron
-              ? `set — I'll remind you on schedule (next ${whenText(dueAt)}): "${params.text}".`
-              : `set — I'll remind you ${whenText(dueAt)}: "${params.text}".`,
-          );
+          return toolText(params.cron
+            ? `set — I'll remind you on schedule (next ${whenText(dueAt)}): "${params.text}".`
+            : `set — I'll remind you ${whenText(dueAt)}: "${params.text}".`);
         },
       }),
 
@@ -92,18 +79,16 @@ export const remindersIntegration: Integration = {
         parameters: z.object({}),
         async execute(_id, _params, _onUpdate, toolCtx) {
           const actor = currentActor(ctx, toolCtx);
-          if (!actor) return fail(NO_ACTOR);
+          if (!actor) return toolError(NO_ACTOR);
 
           const reminders = ctx.reminders.listForUser(actor.userId);
-          if (reminders.length === 0) return ok("no reminders set.");
-          return ok(
-            reminders
-              .map((r) => {
-                const when = r.cron ? `repeats \`${r.cron}\` (next ${whenText(r.dueAt)})` : whenText(r.dueAt);
-                return `• [${r.id}] ${when} — "${r.text}"`;
-              })
-              .join("\n"),
-          );
+          if (reminders.length === 0) return toolText("no reminders set.");
+          return toolText(reminders
+            .map((r) => {
+              const when = r.cron ? `repeats \`${r.cron}\` (next ${whenText(r.dueAt)})` : whenText(r.dueAt);
+              return `• [${r.id}] ${when} — "${r.text}"`;
+            })
+            .join("\n"));
         },
       }),
 
@@ -116,10 +101,10 @@ export const remindersIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const actor = currentActor(ctx, toolCtx);
-          if (!actor) return fail(NO_ACTOR);
+          if (!actor) return toolError(NO_ACTOR);
 
           const removed = ctx.reminders.removeOwned(params.id, actor.userId);
-          return removed ? ok(`cancelled reminder ${params.id}.`) : fail(`no reminder ${params.id} of yours to cancel.`);
+          return removed ? toolText(`cancelled reminder ${params.id}.`) : toolError(`no reminder ${params.id} of yours to cancel.`);
         },
       }),
     ];

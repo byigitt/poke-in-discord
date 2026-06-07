@@ -9,15 +9,8 @@
  * provider your pi credentials already unlock.
  */
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
 import { runSearchQuery } from "@oh-my-pi/pi-coding-agent/web/search";
-import { type Integration, defineTool } from "../types.ts";
-
-/** A tool result reduced to plain text for the model, flagged on failure. */
-interface SearchReply {
-  content: TextContent[];
-  isError?: boolean;
-}
+import { type Integration, type ToolReply, defineTool, toolError } from "../types.ts";
 
 export const webSearchIntegration: Integration = {
   name: "web-search",
@@ -47,13 +40,10 @@ export const webSearchIntegration: Integration = {
               },
             );
             ctx.logger.info("web search", { query: params.query, recency: params.recency });
-            return { content: result.content } satisfies SearchReply;
+            return { content: result.content } satisfies ToolReply;
           } catch (error) {
             ctx.logger.warn("web search failed", { query: params.query, error });
-            return {
-              content: [{ type: "text", text: "couldn't reach the web just now — mind trying again in a sec?" }],
-              isError: true,
-            } satisfies SearchReply;
+            return toolError("couldn't reach the web just now — mind trying again in a sec?");
           }
         },
       }),

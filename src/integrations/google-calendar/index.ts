@@ -8,8 +8,7 @@
  * for over text: what's on my calendar, add this, schedule that.
  */
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import { type Integration, currentToken, defineTool } from "../types.ts";
+import { type Integration, currentToken, defineTool, toolText, toolError } from "../types.ts";
 import { googleApi } from "../google/api.ts";
 import { googleConnection } from "../google/oauth.ts";
 
@@ -18,16 +17,6 @@ const EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/eve
 const RECONNECT = "your Google Calendar connection expired — reconnect by saying `connect google-calendar`.";
 const NOT_CONNECTED = "connect your Google Calendar first — say `connect google-calendar`.";
 
-interface CalendarReply {
-  content: TextContent[];
-  isError?: boolean;
-}
-function ok(text: string): CalendarReply {
-  return { content: [{ type: "text", text }] };
-}
-function fail(text: string): CalendarReply {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 interface CalendarEvent {
   id?: string;
@@ -66,7 +55,7 @@ export const googleCalendarIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const query = new URLSearchParams({
             singleEvents: "true",
@@ -78,12 +67,12 @@ export const googleCalendarIntegration: Integration = {
           if (params.query) query.set("q", params.query);
 
           const result = await googleApi<{ items?: CalendarEvent[] }>(token, `${EVENTS_URL}?${query}`);
-          if (!result.ok) return fail(result.status === 401 ? RECONNECT : `couldn't read your calendar (${result.status}).`);
+          if (!result.ok) return toolError(result.status === 401 ? RECONNECT : `couldn't read your calendar (${result.status}).`);
 
           const events = result.data.items ?? [];
-          if (events.length === 0) return ok("nothing on the calendar for that window.");
+          if (events.length === 0) return toolText("nothing on the calendar for that window.");
           ctx.logger.info("listed calendar events", { count: events.length });
-          return ok(events.map(formatEvent).join("\n"));
+          return toolText(events.map(formatEvent).join("\n"));
         },
       }),
 
@@ -97,14 +86,14 @@ export const googleCalendarIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const url = `${EVENTS_URL}/quickAdd?text=${encodeURIComponent(params.text)}`;
           const result = await googleApi<CalendarEvent>(token, url, { method: "POST" });
-          if (!result.ok) return fail(result.status === 401 ? RECONNECT : `couldn't add that event (${result.status}).`);
+          if (!result.ok) return toolError(result.status === 401 ? RECONNECT : `couldn't add that event (${result.status}).`);
 
           ctx.logger.info("quick-added calendar event");
-          return ok(`added: ${formatEvent(result.data)}`);
+          return toolText(`added: ${formatEvent(result.data)}`);
         },
       }),
 
@@ -123,7 +112,7 @@ export const googleCalendarIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const token = await currentToken(ctx, toolCtx, PROVIDER);
-          if (!token) return fail(NOT_CONNECTED);
+          if (!token) return toolError(NOT_CONNECTED);
 
           const body = {
             summary: params.summary,
@@ -136,10 +125,10 @@ export const googleCalendarIntegration: Integration = {
             method: "POST",
             body: JSON.stringify(body),
           });
-          if (!result.ok) return fail(result.status === 401 ? RECONNECT : `couldn't create that event (${result.status}).`);
+          if (!result.ok) return toolError(result.status === 401 ? RECONNECT : `couldn't create that event (${result.status}).`);
 
           ctx.logger.info("created calendar event");
-          return ok(`created: ${formatEvent(result.data)}`);
+          return toolText(`created: ${formatEvent(result.data)}`);
         },
       }),
     ];

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import type { Logger } from "../logger.ts";
+import { silentLogger } from "../test-support.ts";
 import { type OutboundChannel, extractAssistantText, sendFiles, toDiscordMessages } from "./delivery.ts";
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
 
 const LIMIT = 2000;
 
@@ -89,7 +88,7 @@ describe("sendFiles", () => {
         { path: "/tmp/a.pdf", name: "a.pdf" },
         { path: "/tmp/b.txt", name: "b.txt" },
       ],
-      silent,
+      silentLogger,
     );
     expect(sent).toEqual([
       { files: [{ attachment: "/tmp/a.pdf", name: "a.pdf" }] },
@@ -109,7 +108,7 @@ describe("sendFiles", () => {
       },
       sendTyping: async () => undefined,
     };
-    await sendFiles(channel, [{ path: "/tmp/big.zip", name: "big.zip" }], silent);
+    await sendFiles(channel, [{ path: "/tmp/big.zip", name: "big.zip" }], silentLogger);
     expect(notes.length).toBe(1);
     expect(notes[0]).toContain("big.zip");
   });

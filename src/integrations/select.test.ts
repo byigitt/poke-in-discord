@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ALL_INTEGRATIONS, selectConfigured } from "./index.ts";
+import { ALL_INTEGRATIONS } from "./index.ts";
+import { selectConfigured } from "./select.ts";
 import type { Integration } from "./types.ts";
 
 const noTools: Integration["tools"] = () => [];

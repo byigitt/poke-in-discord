@@ -17,8 +17,7 @@ import type { Dirent, Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod/v4";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import { type Integration, defineTool } from "../types.ts";
+import { type Integration, type ToolReply, defineTool, toolText, toolError } from "../types.ts";
 
 /** Default inline-read cap: enough to read a file, small enough to spare context. */
 const READ_TEXT_CAP = 64 * 1024;
@@ -31,19 +30,6 @@ const SEARCH_VISIT_CAP = 20_000;
 const DEFAULT_SEARCH_LIMIT = 50;
 const MAX_SEARCH_LIMIT = 200;
 
-/** What every file tool returns: plain text for the model, flagged on failure. */
-interface FileToolReply {
-  content: TextContent[];
-  isError?: boolean;
-}
-
-function ok(text: string): FileToolReply {
-  return { content: [{ type: "text", text }] };
-}
-
-function fail(text: string): FileToolReply {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 /** Expand a leading `~` to the home directory; leave every other path untouched. */
 function expandHome(input: string): string {
@@ -140,8 +126,8 @@ export const filesystemIntegration: Integration = {
       }
     };
 
-    const denied = (input: string): FileToolReply =>
-      fail(`"${input}" is outside the folder I'm allowed to touch (${root}).`);
+    const denied = (input: string): ToolReply =>
+      toolError(`"${input}" is outside the folder I'm allowed to touch (${root}).`);
 
     return [
       defineTool({
@@ -162,13 +148,13 @@ export const filesystemIntegration: Integration = {
           try {
             const info = await stat(dir);
             if (!info.isDirectory()) {
-              return fail(`${basename(dir)} is a file, not a folder — use read_text_file or send_file.`);
+              return toolError(`${basename(dir)} is a file, not a folder — use read_text_file or send_file.`);
             }
             entries = await readdir(dir, { withFileTypes: true });
           } catch {
-            return fail(`I couldn't open ${params.path ?? root} — does it exist?`);
+            return toolError(`I couldn't open ${params.path ?? root} — does it exist?`);
           }
-          if (entries.length === 0) return ok(`${dir} is empty.`);
+          if (entries.length === 0) return toolText(`${dir} is empty.`);
 
           const dirs = entries.filter((e) => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name));
           const files = entries.filter((e) => e.isFile()).sort((a, b) => a.name.localeCompare(b.name));
@@ -186,7 +172,7 @@ export const filesystemIntegration: Integration = {
           }
           const shown = Math.min(dirs.length, MAX_LIST_ENTRIES) + Math.min(files.length, fileBudget);
           if (entries.length > shown) lines.push(`  …and ${entries.length - shown} more`);
-          return ok(lines.join("\n"));
+          return toolText(lines.join("\n"));
         },
       }),
 
@@ -213,9 +199,9 @@ export const filesystemIntegration: Integration = {
           const base = await safePath(params.path ?? ".");
           if (base === null) return denied(params.path ?? ".");
           try {
-            if (!(await stat(base)).isDirectory()) return fail(`${basename(base)} isn't a folder.`);
+            if (!(await stat(base)).isDirectory()) return toolError(`${basename(base)} isn't a folder.`);
           } catch {
-            return fail(`I couldn't open ${params.path ?? root} to search it.`);
+            return toolError(`I couldn't open ${params.path ?? root} to search it.`);
           }
 
           const isMatch = buildMatcher(params.query);
@@ -256,13 +242,11 @@ export const filesystemIntegration: Integration = {
           }
 
           if (matches.length === 0) {
-            return ok(
-              `No files matching "${params.query}"${exhausted ? " in the part of the tree I scanned" : ""}.`,
-            );
+            return toolText(`No files matching "${params.query}"${exhausted ? " in the part of the tree I scanned" : ""}.`);
           }
           const header = `${matches.length} match${matches.length === 1 ? "" : "es"} for "${params.query}":`;
           const note = exhausted ? "\n(stopped early — the tree was large; narrow with `path` for more.)" : "";
-          return ok(`${header}\n${matches.map((m) => `  ${m}`).join("\n")}${note}`);
+          return toolText(`${header}\n${matches.map((m) => `  ${m}`).join("\n")}${note}`);
         },
       }),
 
@@ -288,22 +272,20 @@ export const filesystemIntegration: Integration = {
           try {
             info = await stat(file);
           } catch {
-            return fail(`I couldn't find ${params.path}.`);
+            return toolError(`I couldn't find ${params.path}.`);
           }
-          if (info.isDirectory()) return fail(`${basename(file)} is a folder — use list_directory.`);
-          if (!info.isFile()) return fail(`${basename(file)} isn't a regular file.`);
+          if (info.isDirectory()) return toolError(`${basename(file)} is a folder — use list_directory.`);
+          if (!info.isFile()) return toolError(`${basename(file)} isn't a regular file.`);
 
           const cap = Math.min(params.max_bytes ?? READ_TEXT_CAP, READ_TEXT_MAX);
           const result = await readTextCapped(file, info.size, cap);
           if (result === null) {
-            return fail(
-              `${basename(file)} looks binary (${formatBytes(info.size)}). If you want it sent, use send_file.`,
-            );
+            return toolError(`${basename(file)} looks binary (${formatBytes(info.size)}). If you want it sent, use send_file.`);
           }
           const suffix = result.truncated
             ? `\n\n…truncated at ${formatBytes(cap)} of ${formatBytes(info.size)}.`
             : "";
-          return ok(`${basename(file)} (${formatBytes(info.size)}):\n\n${result.text}${suffix}`);
+          return toolText(`${basename(file)} (${formatBytes(info.size)}):\n\n${result.text}${suffix}`);
         },
       }),
 
@@ -317,7 +299,7 @@ export const filesystemIntegration: Integration = {
         }),
         async execute(_id, params, _onUpdate, toolCtx) {
           const sessionKey = toolCtx.sessionManager.getSessionFile();
-          if (!sessionKey) return fail("I can't attach a file to this chat right now.");
+          if (!sessionKey) return toolError("I can't attach a file to this chat right now.");
 
           const file = await safePath(params.path);
           if (file === null) return denied(params.path);
@@ -325,19 +307,17 @@ export const filesystemIntegration: Integration = {
           try {
             info = await stat(file);
           } catch {
-            return fail(`I couldn't find ${params.path} to send.`);
+            return toolError(`I couldn't find ${params.path} to send.`);
           }
-          if (!info.isFile()) return fail(`${basename(file)} isn't a file I can send.`);
-          if (info.size === 0) return fail(`${basename(file)} is empty, so there's nothing to send.`);
+          if (!info.isFile()) return toolError(`${basename(file)} isn't a file I can send.`);
+          if (info.size === 0) return toolError(`${basename(file)} is empty, so there's nothing to send.`);
           if (info.size > uploadCap) {
-            return fail(
-              `${basename(file)} is ${formatBytes(info.size)} — too big to send (limit ${formatBytes(uploadCap)}).`,
-            );
+            return toolError(`${basename(file)} is ${formatBytes(info.size)} — too big to send (limit ${formatBytes(uploadCap)}).`);
           }
 
           ctx.outbox.stage(sessionKey, { path: file, name: basename(file) });
           ctx.logger.info("file staged for upload", { name: basename(file), size: info.size });
-          return ok(`Attaching ${basename(file)} (${formatBytes(info.size)}) to your reply.`);
+          return toolText(`Attaching ${basename(file)} (${formatBytes(info.size)}) to your reply.`);
         },
       }),
 
@@ -355,17 +335,17 @@ export const filesystemIntegration: Integration = {
           if (file === null) return denied(params.path);
           const bytes = Buffer.byteLength(params.content, "utf8");
           if (bytes > uploadCap) {
-            return fail(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
+            return toolError(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
           }
           try {
-            if ((await stat(file).catch(() => null))?.isDirectory()) return fail(`${basename(file)} is a folder.`);
+            if ((await stat(file).catch(() => null))?.isDirectory()) return toolError(`${basename(file)} is a folder.`);
             await mkdir(dirname(file), { recursive: true });
             await writeFile(file, params.content, "utf8");
           } catch (error) {
-            return fail(`couldn't write ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
+            return toolError(`couldn't write ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
           }
           ctx.logger.info("wrote file", { name: basename(file), bytes });
-          return ok(`wrote ${formatBytes(bytes)} to ${basename(file)}.`);
+          return toolText(`wrote ${formatBytes(bytes)} to ${basename(file)}.`);
         },
       }),
 
@@ -382,17 +362,17 @@ export const filesystemIntegration: Integration = {
           if (file === null) return denied(params.path);
           const bytes = Buffer.byteLength(params.content, "utf8");
           if (bytes > uploadCap) {
-            return fail(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
+            return toolError(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
           }
           try {
-            if ((await stat(file).catch(() => null))?.isDirectory()) return fail(`${basename(file)} is a folder.`);
+            if ((await stat(file).catch(() => null))?.isDirectory()) return toolError(`${basename(file)} is a folder.`);
             await mkdir(dirname(file), { recursive: true });
             await appendFile(file, params.content, "utf8");
           } catch (error) {
-            return fail(`couldn't append to ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
+            return toolError(`couldn't append to ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
           }
           ctx.logger.info("appended to file", { name: basename(file), bytes });
-          return ok(`appended ${formatBytes(bytes)} to ${basename(file)}.`);
+          return toolText(`appended ${formatBytes(bytes)} to ${basename(file)}.`);
         },
       }),
     ];

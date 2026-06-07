@@ -8,7 +8,10 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test",
+    "smoke": "bun run scripts/smoke.ts"
   },
   "dependencies": {
     "@oh-my-pi/pi-ai": "^15.9.67",

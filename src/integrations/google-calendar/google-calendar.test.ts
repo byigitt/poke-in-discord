@@ -2,25 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CustomToolContext } from "@oh-my-pi/pi-coding-agent";
-import type { TextContent } from "@oh-my-pi/pi-ai";
-import type { Config } from "../../config.ts";
-import type { Logger } from "../../logger.ts";
-import type { PiRuntime } from "../../pi/runtime.ts";
 import { ActorRegistry } from "../../actor.ts";
 import { ConnectionManager } from "../../connections/manager.ts";
 import { resolveProvider } from "../../connections/oauth.ts";
 import { TokenStore } from "../../connections/store.ts";
-import { ReplyOutbox } from "../../outbox.ts";
-import type { ReminderStore } from "../../reminders/store.ts";
-import type { CustomTool, IntegrationContext } from "../types.ts";
+import type { CustomTool } from "../types.ts";
+import { fakeIntegrationContext, fakeToolContext, silentLogger, textOf } from "../../test-support.ts";
 import { googleCalendarIntegration } from "./index.ts";
-
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
-
-function textOf(result: { content: { type: string }[] }): string {
-  return result.content.map((c) => (c.type === "text" ? (c as TextContent).text : "")).join("");
-}
 
 const SESSION = "/sessions/chan.jsonl";
 let dir: string;
@@ -30,18 +18,10 @@ let tools: Map<string, CustomTool>;
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "poke-gcal-"));
   store = new TokenStore(join(dir, "connections.db"));
-  const connections = new ConnectionManager(store, "http://localhost/oauth/callback", silent);
+  const connections = new ConnectionManager(store, "http://localhost/oauth/callback", silentLogger);
   const actor = new ActorRegistry();
   actor.enter(SESSION, { userId: "u1", channelId: "c1" }); // talking, but hasn't linked their calendar
-  const ctx: IntegrationContext = {
-    runtime: undefined as unknown as PiRuntime,
-    config: {} as unknown as Config,
-    logger: silent,
-    outbox: new ReplyOutbox(),
-    connections,
-    actor,
-    reminders: undefined as unknown as ReminderStore,
-  };
+  const ctx = fakeIntegrationContext({ connections, actor });
   tools = new Map((await googleCalendarIntegration.tools(ctx)).map((t) => [t.name, t]));
 });
 
@@ -50,8 +30,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const toolCtx = (): CustomToolContext =>
-  ({ sessionManager: { getSessionFile: () => SESSION, getSessionId: () => "sid" } }) as unknown as CustomToolContext;
+const toolCtx = () => fakeToolContext({ sessionFile: SESSION, sessionId: "sid" });
 
 describe("google-calendar tools", () => {
   test("exposes list, quick-add, and create", () => {
@@ -92,7 +71,7 @@ describe("google-calendar connection", () => {
       GOOGLE_CLIENT_SECRET: "sec",
     });
     expect(provider).not.toBeNull();
-    const manager = new ConnectionManager(store, "http://localhost:8787/oauth/callback", silent);
+    const manager = new ConnectionManager(store, "http://localhost:8787/oauth/callback", silentLogger);
     manager.registerProvider(provider!);
     const parsed = new URL(manager.beginConnect("u1", "google-calendar")!);
     expect(parsed.host).toBe("accounts.google.com");
