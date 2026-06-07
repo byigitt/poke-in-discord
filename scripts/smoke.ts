@@ -25,6 +25,7 @@ import { resolveProvider } from "../src/connections/oauth.ts";
 import { googleCalendarIntegration } from "../src/integrations/google-calendar/index.ts";
 import { remindersIntegration } from "../src/integrations/reminders/index.ts";
 import { ReminderStore } from "../src/reminders/store.ts";
+import { shellIntegration } from "../src/integrations/shell/index.ts";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
@@ -50,7 +51,8 @@ const registry = new IntegrationRegistry()
   .register(clockIntegration)
   .register(filesystemIntegration)
   .register(webSearchIntegration)
-  .register(remindersIntegration);
+  .register(remindersIntegration)
+  .register(shellIntegration);
 const outbox = new ReplyOutbox();
 const actor = new ActorRegistry();
 const connections = new ConnectionManager(
@@ -210,6 +212,15 @@ console.log(`\n> every weekday at 9am, remind me to check standup\n  [reply] ${r
 const recurring = reminderStore.listForUser("recur-user");
 assert(recurring.length >= 1 && Boolean(recurring.at(-1)!.cron), "scheduled a recurring (cron) reminder");
 console.log(`  [stored cron] ${recurring.at(-1)!.cron}`);
+
+// 14) Shell: the bot actually runs a command on the host and reads its output.
+let shellReply = "";
+await conversations.run("smoke-shell", async (session) => {
+  await session.prompt("run this command and tell me the output: echo poke-shell-works");
+  shellReply = extractAssistantText(session.getLastAssistantMessage());
+});
+console.log(`\n> run: echo poke-shell-works\n  [reply] ${shellReply}`);
+assert(/poke-shell-works/.test(shellReply), "ran a shell command and reported its output (run_command)");
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");

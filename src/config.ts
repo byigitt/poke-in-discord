@@ -41,6 +41,10 @@ export interface Config {
   readonly filesRoot: string;
   /** Largest file (bytes) the bot will read inline or upload to Discord. */
   readonly fileMaxBytes: number;
+  /** Working directory shell commands run in (shell integration; default = filesRoot). */
+  readonly shellCwd: string;
+  /** Max wall-clock per shell command, in ms. */
+  readonly shellTimeoutMs: number;
   /** Port for the local OAuth callback server that completes account connects. */
   readonly oauthPort: number;
   /** Public base URL the OAuth provider redirects back to. Default http://localhost:<port>. */
@@ -87,6 +91,7 @@ export function loadConfig(): Config {
   // Hoisted: later fields derive their defaults from these.
   const sessionDir = optional("POKE_SESSION_DIR", ".sessions");
   const oauthPort = positiveInt("POKE_OAUTH_PORT", 8787);
+  const filesRoot = optional("POKE_FILES_ROOT", homedir());
   return {
     discordToken: required("DISCORD_TOKEN"),
     botName: optional("POKE_BOT_NAME", "Poke"),
@@ -99,8 +104,10 @@ export function loadConfig(): Config {
     imageMaxBytes: positiveInt("POKE_MAX_IMAGE_MB", 8) * 1024 * 1024,
     maxImagesPerMessage: positiveInt("POKE_MAX_IMAGES", 4),
     agentDir: process.env.POKE_AGENT_DIR?.trim() || undefined,
-    filesRoot: optional("POKE_FILES_ROOT", homedir()),
+    filesRoot,
     fileMaxBytes: positiveInt("POKE_FILES_MAX_MB", 8) * 1024 * 1024,
+    shellCwd: optional("POKE_SHELL_CWD", filesRoot),
+    shellTimeoutMs: positiveInt("POKE_SHELL_TIMEOUT_SECONDS", 30) * 1000,
     oauthPort,
     oauthRedirectBase: optional("POKE_OAUTH_REDIRECT_BASE", `http://localhost:${oauthPort}`),
     connectionsFile: optional("POKE_CONNECTIONS_FILE", join(sessionDir, "connections.db")),

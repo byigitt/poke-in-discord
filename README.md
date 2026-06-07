@@ -13,6 +13,9 @@ anything with an MCP server (Notion, Linear, GitHub, …) — the same apps Poke
 integrates with. Each app loads only when it's configured, and every user links
 their own account right from chat with `connect`.
 
+And if you explicitly turn it on, it can **run shell commands** on that machine —
+the OpenClaw-style "actually do things on my computer" move (off by default).
+
 ## How it works
 
 ```
@@ -78,6 +81,9 @@ bun start                 # or: bun dev  (watch mode)
   standup", "every morning at 8 take my meds"). It nudges you in its own voice
   when it's due, recurring ones repeat on schedule, and they survive restarts.
   Ask what's pending or to cancel one too.
+- **Run a command** (opt-in) — with `POKE_SHELL_ENABLED` set, it can actually do
+  things on the box: "run git status", "what's using port 3000", "convert this
+  with ffmpeg". Off by default; see the safety note.
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -90,6 +96,12 @@ by `POKE_FILES_MAX_MB`. But within that root the bot can read and send **any**
 file to whoever it's chatting with. So keep it in DMs or a private server, point
 `POKE_FILES_ROOT` at just the folder you want it to reach, and remember that
 anyone it talks to can ask for those files.
+
+The **shell** integration goes further: with `POKE_SHELL_ENABLED` it runs
+arbitrary commands as your user — that's the point, and exactly why it's off
+unless you set that flag. Commands run in `POKE_SHELL_CWD`, are killed after
+`POKE_SHELL_TIMEOUT_SECONDS`, and output is capped. Only enable it on a machine
+and in a chat you trust.
 
 ### Connecting accounts (Google, MCP, …)
 
@@ -129,6 +141,9 @@ All via `.env` (see `.env.example`):
 | `POKE_MAX_IMAGES` | `4` | Most images forwarded from a single message. |
 | `POKE_FILES_ROOT` | home dir | Folder the file tools may browse, read, and send from. Paths are confined under it. |
 | `POKE_FILES_MAX_MB` | `8` | Largest file the bot will read inline or upload to Discord. |
+| `POKE_SHELL_ENABLED` | unset (off) | Set to anything to enable the shell integration (`run_command`). |
+| `POKE_SHELL_CWD` | = `POKE_FILES_ROOT` | Working directory shell commands run in. |
+| `POKE_SHELL_TIMEOUT_SECONDS` | `30` | A shell command is killed after this long. |
 | `POKE_OAUTH_PORT` | `8787` | Port for the local OAuth callback server (account connect). |
 | `POKE_OAUTH_REDIRECT_BASE` | `http://localhost:<port>` | Public base URL providers redirect back to; must match your registered redirect URI. |
 | `POKE_CONNECTIONS_FILE` | `<session dir>/connections.db` | SQLite file of per-user linked-account tokens. |
@@ -229,6 +244,8 @@ src/
     web-search/             search the web via pi's own providers (no extra key)
       index.ts              the integration
     reminders/              set / list / cancel; the bot nudges you when due
+      index.ts              the integration
+    shell/                  run_command — run shell commands (opt-in via env)
       index.ts              the integration
     google/                 shared Google OAuth + API helpers (Calendar, Gmail)
     google-calendar/        list / quick-add / create events (connect google-calendar)
