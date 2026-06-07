@@ -17,6 +17,7 @@ const echoApp: BuiltinMcpServer = {
   label: "Echo",
   capability: "Echo text back",
   tokenEnv: ["ECHO_TOKEN"],
+  setup: { credential: "an echo token" },
   transport: { type: "stdio", command: "bun", args: ["run", ECHO_SERVER], tokenVar: "ECHO_TOKEN" },
 };
 
@@ -54,6 +55,7 @@ describe("loadBuiltinMcp", () => {
       label: "Ghost",
       capability: "Never loads",
       tokenEnv: ["GHOST_TOKEN"],
+      setup: { credential: "a ghost token" },
       transport: { type: "stdio", command: "bun", args: ["run", ECHO_SERVER], tokenVar: "GHOST_TOKEN" },
     };
     bridge = await loadBuiltinMcp([echoApp, ghost], { ECHO_TOKEN: "secret" }, dir, silentLogger);

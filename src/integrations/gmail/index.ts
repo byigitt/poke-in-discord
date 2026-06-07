@@ -81,6 +81,10 @@ export const gmailIntegration: Integration = {
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
   ]),
+  setup: {
+    credential:
+      "a Google OAuth client at console.cloud.google.com (APIs & Services → Credentials → OAuth client ID → Web application), with the Gmail API enabled and <redirect base>/oauth/callback added as an authorized redirect URI",
+  },
   tools(ctx) {
     return [
       defineTool({

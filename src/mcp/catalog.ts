@@ -53,6 +53,18 @@ export interface BuiltinMcpServer {
    * environment never silently exposes tools; the array stays open for aliases.
    */
   readonly tokenEnv: readonly string[];
+  /**
+   * The knowledge-bank entry: how an operator turns this app on. Surfaced to the
+   * assistant (via {@link builtinSetupGuide}) so that when someone asks for an app
+   * whose credential isn't set, the bot can recognize it and walk them through
+   * enabling it instead of just refusing — the whole point of shipping these.
+   */
+  readonly setup: {
+    /** What credential to create and where, e.g. "a GitHub personal access token (github.com/settings/tokens)". */
+    readonly credential: string;
+    /** Optional caveat worth telling the user, e.g. "needs npx/Node on the host". */
+    readonly note?: string;
+  };
   readonly transport: BuiltinTransport;
 }
 
@@ -63,6 +75,26 @@ export function builtinToken(server: BuiltinMcpServer, env: Record<string, strin
     if (value) return value;
   }
   return null;
+}
+
+/**
+ * Render the one-line "how to turn this on" guide the assistant uses when a user
+ * wants an app whose credential isn't set. Fact-dense on purpose — the model
+ * rephrases it in character, so accuracy (exact env var, where to get the
+ * credential, the restart) matters more than prose.
+ */
+export function builtinSetupGuide(server: BuiltinMcpServer): string {
+  const envVar = server.tokenEnv[0] ?? "its token variable";
+  const note = server.setup.note ? ` (${server.setup.note})` : "";
+  return `${server.capability}. Not set up yet — create ${server.setup.credential}, put it in ${envVar} in the bot's .env, and restart.${note}`;
+}
+
+/** Catalog apps with no credential configured — the ones the bot can offer to help set up. */
+export function dormantBuiltins(
+  catalog: readonly BuiltinMcpServer[],
+  env: Record<string, string | undefined>,
+): BuiltinMcpServer[] {
+  return catalog.filter((server) => builtinToken(server, env) === null);
 }
 
 /** Turn a built-in server + its resolved token into a connect-ready MCP config. */
@@ -139,6 +171,9 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "GitHub",
     capability: "Work with the user's GitHub — search code, manage issues and pull requests, read repos",
     tokenEnv: ["GITHUB_MCP_TOKEN"],
+    setup: {
+      credential: "a GitHub personal access token (github.com → Settings → Developer settings → Personal access tokens)",
+    },
     transport: { type: "http", url: "https://api.githubcopilot.com/mcp/" },
   },
   {
@@ -146,6 +181,11 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "Notion",
     capability: "Search and edit the user's Notion pages and databases",
     tokenEnv: ["NOTION_MCP_TOKEN"],
+    setup: {
+      credential:
+        "a Notion internal integration token at notion.so/my-integrations, then share the pages/databases you want it to reach with that integration",
+      note: "needs npx/Node available on the host",
+    },
     transport: {
       type: "stdio",
       command: "npx",
@@ -158,6 +198,9 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "Linear",
     capability: "Track the user's Linear issues, projects, and cycles",
     tokenEnv: ["LINEAR_MCP_TOKEN"],
+    setup: {
+      credential: "a Linear personal API key (Linear → Settings → Security & access → API keys)",
+    },
     transport: { type: "http", url: "https://mcp.linear.app/mcp" },
   },
   {
@@ -165,6 +208,9 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "Stripe",
     capability: "Look up Stripe payments, customers, and subscriptions",
     tokenEnv: ["STRIPE_MCP_TOKEN"],
+    setup: {
+      credential: "a Stripe restricted API key at dashboard.stripe.com/apikeys, scoped to only what the bot may touch",
+    },
     transport: { type: "http", url: "https://mcp.stripe.com" },
   },
   {
@@ -172,6 +218,10 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "Canva",
     capability: "Create and browse the user's Canva designs",
     tokenEnv: ["CANVA_MCP_TOKEN"],
+    setup: {
+      credential: "a Canva access token (see canva.dev/docs/connect)",
+      note: "Canva has no long-lived keys, so the token expires after ~4h and must be refreshed",
+    },
     transport: { type: "http", url: "https://mcp.canva.com/mcp" },
   },
   {
@@ -179,6 +229,9 @@ export const BUILTIN_MCP_SERVERS: readonly BuiltinMcpServer[] = [
     label: "Hugging Face",
     capability: "Explore Hugging Face models, datasets, and Spaces",
     tokenEnv: ["HUGGINGFACE_MCP_TOKEN"],
+    setup: {
+      credential: "a Hugging Face access token at huggingface.co/settings/tokens",
+    },
     transport: { type: "http", url: "https://huggingface.co/mcp" },
   },
 ];

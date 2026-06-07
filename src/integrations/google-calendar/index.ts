@@ -40,6 +40,10 @@ export const googleCalendarIntegration: Integration = {
   name: "google-calendar",
   capability: "Check and add events on the user's Google Calendar (once they connect it)",
   connection: googleConnection(PROVIDER, "Google Calendar", ["https://www.googleapis.com/auth/calendar.events"]),
+  setup: {
+    credential:
+      "a Google OAuth client at console.cloud.google.com (APIs & Services → Credentials → OAuth client ID → Web application), with the Google Calendar API enabled and <redirect base>/oauth/callback added as an authorized redirect URI",
+  },
   tools(ctx) {
     return [
       defineTool({

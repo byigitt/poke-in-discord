@@ -62,7 +62,7 @@ const connections = new ConnectionManager(
 );
 const reminderStore = new ReminderStore(join(tmp, "reminders.db"));
 const tools = await registry.buildTools({ runtime, config, outbox, connections, actor, reminders: reminderStore, logger: logger.child("integrations") });
-const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
+const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities(), setupGuides: [] });
 console.log(`\ntools: ${tools.map((t) => t.name).join(", ")}`);
 console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);
 

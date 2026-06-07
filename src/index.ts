@@ -10,7 +10,7 @@ import { buildPersona } from "./pi/persona.ts";
 import { PiRuntime } from "./pi/runtime.ts";
 import { IntegrationRegistry } from "./integrations/registry.ts";
 import { ALL_INTEGRATIONS } from "./integrations/index.ts";
-import { selectConfigured } from "./integrations/select.ts";
+import { selectConfigured, integrationSetupGuide } from "./integrations/select.ts";
 import { resolveProvider } from "./connections/oauth.ts";
 import { TokenStore } from "./connections/store.ts";
 import { ConnectionManager } from "./connections/manager.ts";
@@ -22,7 +22,7 @@ import { ReplyOutbox } from "./outbox.ts";
 import { ActorRegistry } from "./actor.ts";
 import { loadMcpBridge, type McpBridge } from "./mcp/bridge.ts";
 import { loadBuiltinMcp } from "./mcp/builtin.ts";
-import { BUILTIN_MCP_SERVERS } from "./mcp/catalog.ts";
+import { BUILTIN_MCP_SERVERS, builtinSetupGuide, dormantBuiltins } from "./mcp/catalog.ts";
 
 const logger = createLogger("poke");
 
@@ -74,13 +74,25 @@ async function main(): Promise<void> {
   const mcpBridges = [builtinMcp, fileMcp].filter((bridge): bridge is McpBridge => bridge !== null);
   const mcpTools = mcpBridges.flatMap((bridge) => bridge.tools);
   const capabilities = [...registry.capabilities(), ...mcpBridges.flatMap((bridge) => bridge.capabilities)];
-  const persona = buildPersona({ botName: config.botName, capabilities });
+  // The knowledge bank: apps that exist but aren't configured (no MCP token, no
+  // OAuth client). The persona uses these so the bot can walk a user through
+  // turning one on instead of just refusing — built-in MCP apps and dormant
+  // OAuth integrations alike. Always-on apps and the shell toggle declare no
+  // `setup`, so they never show up here.
+  const setupGuides = [
+    ...dormantBuiltins(BUILTIN_MCP_SERVERS, process.env).map(builtinSetupGuide),
+    ...ALL_INTEGRATIONS.filter((integration) => !enabled.includes(integration))
+      .map(integrationSetupGuide)
+      .filter((guide): guide is string => guide !== null),
+  ];
+  const persona = buildPersona({ botName: config.botName, capabilities, setupGuides });
   logger.info("persona assembled", {
     botName: config.botName,
     integrations: registry.size,
     tools: integrationTools.length,
     mcpServers: mcpBridges.flatMap((bridge) => bridge.servers),
     mcpTools: mcpTools.length,
+    setupGuides: setupGuides.length,
   });
 
   const conversations = new ConversationSessions({

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   BUILTIN_MCP_SERVERS,
   type BuiltinMcpServer,
+  builtinSetupGuide,
   builtinToken,
+  dormantBuiltins,
   selectBuiltinServers,
   toServerConfig,
 } from "./catalog.ts";
@@ -12,6 +14,7 @@ const httpServer: BuiltinMcpServer = {
   label: "Acme",
   capability: "Do Acme things",
   tokenEnv: ["ACME_TOKEN", "ACME_API_KEY"],
+  setup: { credential: "an Acme key at acme.test/keys" },
   transport: { type: "http", url: "https://mcp.acme.test/mcp" },
 };
 
@@ -20,6 +23,7 @@ const stdioServer: BuiltinMcpServer = {
   label: "Local",
   capability: "Do local things",
   tokenEnv: ["LOCAL_TOKEN"],
+  setup: { credential: "a local token", note: "needs npx" },
   transport: { type: "stdio", command: "npx", args: ["-y", "local-mcp"], tokenVar: "LOCAL_TOKEN" },
 };
 
@@ -98,10 +102,11 @@ describe("BUILTIN_MCP_SERVERS catalog", () => {
     ]);
   });
 
-  test("every entry advertises a capability and at least one credential env var", () => {
+  test("every entry advertises a capability, a credential env var, and a setup guide", () => {
     for (const server of BUILTIN_MCP_SERVERS) {
       expect(server.capability.length).toBeGreaterThan(0);
       expect(server.tokenEnv.length).toBeGreaterThan(0);
+      expect(server.setup.credential.length).toBeGreaterThan(0);
     }
   });
 
@@ -129,5 +134,38 @@ describe("BUILTIN_MCP_SERVERS catalog", () => {
     const { enabled, skipped } = selectBuiltinServers(BUILTIN_MCP_SERVERS, { GITHUB_MCP_TOKEN: "x" });
     expect(enabled.map((s) => s.name)).toEqual(["github"]);
     expect(skipped.map((s) => s.name)).toEqual(["notion", "linear", "stripe", "canva", "huggingface"]);
+  });
+});
+
+describe("builtinSetupGuide", () => {
+  test("names the credential, the exact env var, and the restart", () => {
+    const guide = builtinSetupGuide(httpServer);
+    expect(guide).toContain("Do Acme things");
+    expect(guide).toContain("an Acme key at acme.test/keys");
+    expect(guide).toContain("ACME_TOKEN"); // the first/primary token env var
+    expect(guide).toContain("restart");
+  });
+
+  test("appends the note when present", () => {
+    expect(builtinSetupGuide(stdioServer)).toContain("(needs npx)");
+    expect(builtinSetupGuide(httpServer)).not.toContain("(");
+  });
+
+  test("the real GitHub guide is actionable: where to get the PAT and which var to set", () => {
+    const github = BUILTIN_MCP_SERVERS.find((s) => s.name === "github");
+    const guide = builtinSetupGuide(github!);
+    expect(guide).toContain("github.com");
+    expect(guide).toContain("GITHUB_MCP_TOKEN");
+    expect(guide).toContain("restart");
+  });
+});
+
+describe("dormantBuiltins", () => {
+  test("returns apps with no credential, and drops one once its token is set", () => {
+    const all = dormantBuiltins([httpServer, stdioServer], {});
+    expect(all.map((s) => s.name)).toEqual(["acme", "local"]);
+
+    const withAcme = dormantBuiltins([httpServer, stdioServer], { ACME_API_KEY: "tok" });
+    expect(withAcme.map((s) => s.name)).toEqual(["local"]);
   });
 });

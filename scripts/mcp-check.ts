@@ -62,7 +62,7 @@ if (docs) {
 
 // End-to-end: the agent must CALL an MCP tool (not hallucinate <use_mcp_tool> text).
 console.log("\n[3] agent end-to-end (factory registers MCP tools via refreshMCPTools)…");
-const persona = buildPersona({ botName: config.botName, capabilities: [...bridge.capabilities] });
+const persona = buildPersona({ botName: config.botName, capabilities: [...bridge.capabilities], setupGuides: [] });
 const conversations = new ConversationSessions({ runtime, config, persona, tools: [], mcpTools: bridge.tools, logger });
 conversations.start();
 const prompt = docs

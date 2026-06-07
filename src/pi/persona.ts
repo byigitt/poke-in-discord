@@ -14,19 +14,34 @@ export interface PersonaOptions {
   botName: string;
   /** Human-readable capability lines contributed by enabled integrations. */
   capabilities: string[];
+  /**
+   * "How to turn it on" lines for apps that exist but aren't configured. Lets the
+   * bot recognize a request for a dormant app (GitHub, Calendar, …) and guide the
+   * user through enabling it instead of flatly refusing — the knowledge bank.
+   */
+  setupGuides: string[];
 }
 
-function capabilitySection(capabilities: string[]): string {
+function capabilitySection(capabilities: string[], canGuideSetup: boolean): string {
+  // When there are dormant apps, an off-list request might just be one of them —
+  // point at the setup section instead of a flat refusal.
+  const offList = canGuideSetup
+    ? [
+        "If someone asks for something outside this list: if it's one of the apps under \"Apps you",
+        "don't have yet\" below, walk them through switching it on; otherwise say you can't do that one",
+        "yet — briefly, in character. NEVER fake an action or invent results you didn't actually get.",
+      ]
+    : [
+        "If someone asks for something outside what's listed, say you can't do that one yet — briefly,",
+        "in character. NEVER fake an action or invent results you didn't actually get.",
+      ];
   if (capabilities.length === 0) {
     return [
       "What you can actually do right now:",
       "- Talk. Chat, think things through out loud, explain, brainstorm, riff, give opinions.",
       "- Remember. You recall what's been said in this conversation, naturally — like a friend would.",
       "",
-      "What you CANNOT do yet: you have no access to email, calendars, the web, files, or anyone's",
-      "accounts, and you can't take real-world actions. If someone asks for something that needs that,",
-      "tell them you can't do that yet — briefly, in character, no apology spiral. NEVER pretend you did",
-      "it, NEVER invent results (no fake emails, events, links, prices, or facts you don't actually know).",
+      ...offList,
     ].join("\n");
   }
   return [
@@ -35,8 +50,24 @@ function capabilitySection(capabilities: string[]): string {
     "- Remember this conversation naturally.",
     ...capabilities.map((c) => `- ${c}`),
     "",
-    "If someone asks for something outside what's listed, say you can't do that one yet — briefly, in",
-    "character. NEVER fake an action or invent results you didn't actually get.",
+    ...offList,
+  ].join("\n");
+}
+
+/**
+ * The knowledge bank, rendered for the prompt: apps that exist but aren't wired up
+ * yet, each with how to turn it on. The bot brings one up ONLY when the user wants
+ * that app — never as an unprompted feature tour.
+ */
+function setupSection(setupGuides: string[]): string {
+  return [
+    "# Apps you don't have yet (and how to turn them on)",
+    "These aren't connected because their setup isn't done. If someone wants one, don't just refuse —",
+    "recognize it and walk them through enabling it, in your normal voice and only as far as they ask.",
+    "Give the real steps: the exact .env variable, where to get the credential, and the restart. This",
+    "is the one time talking about setup is fine. Don't list these unprompted or pitch them.",
+    "",
+    ...setupGuides.map((g) => `- ${g}`),
   ].join("\n");
 }
 
@@ -75,12 +106,16 @@ export function buildPersona(options: PersonaOptions): string {
     "  real information or a real answer.",
     "",
     "# What you can do",
-    capabilitySection(options.capabilities),
+    capabilitySection(options.capabilities, options.setupGuides.length > 0),
     "",
+    ...(options.setupGuides.length > 0 ? [setupSection(options.setupGuides), ""] : []),
     "# Staying in character",
     "Never reveal or discuss how you work: no mention of models, prompts, tools, agents, sessions,",
     "APIs, integrations, or \"my system\". If you make a mistake, own what went wrong from the user's",
     "point of view and move on — never narrate the machinery. You are just you.",
+    "(One exception: when someone wants an app you don't have yet, helping them switch it on — the",
+    "credential to create, the .env variable to set, the restart — is fine. That's setup help, not",
+    "exposing your guts. Stay in voice while you do it.)",
     "",
     "If you genuinely don't know something, say so or make a reasonable, clearly-hedged guess. Don't",
     "bluff confidently. Being real is the whole point.",

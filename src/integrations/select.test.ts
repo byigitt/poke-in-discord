@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ALL_INTEGRATIONS } from "./index.ts";
-import { selectConfigured } from "./select.ts";
+import { integrationSetupGuide, selectConfigured } from "./select.ts";
 import type { Integration } from "./types.ts";
 
 const noTools: Integration["tools"] = () => [];
@@ -63,5 +63,56 @@ describe("selectConfigured", () => {
     expect(selectConfigured(ALL_INTEGRATIONS, { POKE_SHELL_ENABLED: "1" }).enabled.map((i) => i.name)).toContain(
       "shell",
     );
+  });
+});
+
+describe("integrationSetupGuide", () => {
+  const oauthWithSetup: Integration = {
+    ...oauth,
+    capability: "Do OAuthy things",
+    setup: { credential: "an OAuthy app at oauthy.test/apps" },
+  };
+  const requiresWithSetup: Integration = {
+    name: "keyed",
+    capability: "Do keyed things",
+    requires: ["KEYED_API_KEY"],
+    setup: { credential: "a key at keyed.test", note: "read-only is enough" },
+    tools: noTools,
+  };
+
+  test("returns null for an integration that declares no setup", () => {
+    expect(integrationSetupGuide(plain)).toBeNull();
+    expect(integrationSetupGuide(oauth)).toBeNull();
+  });
+
+  test("an OAuth app's guide names the credential, both client vars, restart, and the connect step", () => {
+    const guide = integrationSetupGuide(oauthWithSetup);
+    expect(guide).toContain("Do OAuthy things");
+    expect(guide).toContain("an OAuthy app at oauthy.test/apps");
+    expect(guide).toContain("X_ID and X_SECRET");
+    expect(guide).toContain("restart");
+    expect(guide).toContain("connect oauthy");
+  });
+
+  test("a requires-only app's guide names its env var and skips the connect step", () => {
+    const guide = integrationSetupGuide(requiresWithSetup) ?? "";
+    expect(guide).toContain("KEYED_API_KEY");
+    expect(guide).not.toContain("connect");
+    expect(guide).toContain("(read-only is enough)");
+  });
+
+  test("real catalog: Google Calendar guides to the OAuth client vars and `connect google-calendar`", () => {
+    const calendar = ALL_INTEGRATIONS.find((i) => i.name === "google-calendar");
+    const guide = integrationSetupGuide(calendar!) ?? "";
+    expect(guide).toContain("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET");
+    expect(guide).toContain("connect google-calendar");
+    expect(guide).toContain("console.cloud.google.com");
+  });
+
+  test("real catalog: always-on and shell apps declare no setup guide", () => {
+    for (const name of ["filesystem", "web-search", "reminders", "shell"]) {
+      const integration = ALL_INTEGRATIONS.find((i) => i.name === name);
+      expect(integrationSetupGuide(integration!)).toBeNull();
+    }
   });
 });

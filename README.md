@@ -13,7 +13,10 @@ with `connect`), plus the popular apps built right in over MCP — **GitHub,
 Notion, Linear, Stripe, Canva, Hugging Face** — the same kinds of apps Poke
 integrates with. Each app loads only when its credential is configured, so the
 bot never offers something it can't actually do — and anything else with an MCP
-server can still be dropped in.
+server can still be dropped in. Don't know how to wire one up? Just ask: if you
+want an app that isn't set up yet, the bot recognizes it and walks you through
+turning it on (where to get the credential, which variable to set, the restart),
+so you don't need to read any of this first.
 
 And if you explicitly turn it on, it can **run shell commands** on that machine —
 the OpenClaw-style "actually do things on my computer" move (off by default).
@@ -138,6 +141,11 @@ names are deliberately bot-scoped (`*_MCP_TOKEN`), not the providers' usual env
 vars, so a stray `GITHUB_TOKEN` or `STRIPE_SECRET_KEY` in your shell never quietly
 switches an app on.
 
+Each built-in app also carries a short "how to turn it on" note (its `setup` field),
+which the bot keeps as a knowledge bank: ask for an app whose credential isn't set
+and it walks you through enabling it in chat instead of refusing. So you can install
+the project, message it "can you do GitHub stuff?", and let it guide you from there.
+
 **Everything else (the long tail).** Anything not built in can still come in via
 MCP: drop a `.mcp.json` next to the bot (even `{}` works); pi then loads servers
 from it **and** your global MCP config — the same `~/.claude.json` / marketplace
@@ -241,7 +249,10 @@ get the current user's token. No connect-flow plumbing leaks into the integratio
 For a popular app you'd rather ship in the box, add a built-in MCP entry instead
 of hand-writing tools: append it to `BUILTIN_MCP_SERVERS` in `src/mcp/catalog.ts`
 (name, capability line, its token env var, and the HTTP/stdio transport) and it
-loads whenever that credential is set. Anything more bespoke can still come in
+loads whenever that credential is set. Give it a `setup` (where to get the
+credential, plus any caveat) so the bot can guide users to turn it on when it's
+off — that's the knowledge bank. OAuth integrations get the same by declaring a
+`setup` alongside their `connection`. Anything more bespoke can still come in
 through a `.mcp.json`.
 
 **Conventions.** Tool results use the shared `toolText` / `toolError` helpers — no

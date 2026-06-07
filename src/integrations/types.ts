@@ -81,6 +81,19 @@ export interface Integration {
    * so `connect <provider>` works. Tools then call {@link currentToken}.
    */
   readonly connection?: ConnectionSpec;
+  /**
+   * Knowledge-bank entry for a dormant app: how an operator turns it on. When set
+   * and the integration ISN'T loaded, {@link integrationSetupGuide} renders a line
+   * the persona uses to walk the user through enabling it instead of refusing.
+   * Only meaningful for connectable apps (OAuth or `requires`); always-on ones
+   * (filesystem, …) and deliberate danger toggles (shell) leave it unset.
+   */
+  readonly setup?: {
+    /** What credential to create and where, e.g. "a Google OAuth client (console.cloud.google.com)". */
+    readonly credential: string;
+    /** Optional caveat worth telling the user. */
+    readonly note?: string;
+  };
   /** Build this integration's tools. May be async (e.g. to set up a client). */
   tools(ctx: IntegrationContext): CustomTool[] | Promise<CustomTool[]>;
 }

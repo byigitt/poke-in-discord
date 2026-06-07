@@ -8,6 +8,25 @@
  */
 import type { Integration } from "./types.ts";
 
+/**
+ * Render the "how to turn this on" guide for a dormant OAuth/`requires` app, or
+ * null when the integration declares no `setup` (always-on apps, the shell
+ * toggle). Mirrors {@link builtinSetupGuide} for MCP apps: fact-dense steps —
+ * the credential, the env vars to set, the restart, and the `connect` step for
+ * OAuth apps — which the assistant rephrases in character.
+ */
+export function integrationSetupGuide(integration: Integration): string | null {
+  const { setup, connection } = integration;
+  if (!setup) return null;
+  const what = integration.capability ?? integration.name;
+  const envVars = connection
+    ? `${connection.clientIdEnv} and ${connection.clientSecretEnv}`
+    : (integration.requires ?? []).join(" and ");
+  const connectStep = connection ? `, then say \`connect ${connection.provider}\`` : "";
+  const note = setup.note ? ` (${setup.note})` : "";
+  return `${what}. Not set up yet — create ${setup.credential}, set ${envVars} in the bot's .env, restart${connectStep}.${note}`;
+}
+
 /** One integration that couldn't load, and exactly which env vars it's missing. */
 export interface SkippedIntegration {
   readonly name: string;
