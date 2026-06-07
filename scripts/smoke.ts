@@ -14,6 +14,7 @@ import { buildPersona } from "../src/pi/persona.ts";
 import { IntegrationRegistry } from "../src/integrations/registry.ts";
 import { clockIntegration } from "../src/integrations/examples/clock.ts";
 import { filesystemIntegration } from "../src/integrations/filesystem/index.ts";
+import { webSearchIntegration } from "../src/integrations/web-search/index.ts";
 import { ConversationSessions } from "../src/sessions/store.ts";
 import { extractAssistantText, toDiscordMessages } from "../src/discord/delivery.ts";
 import { ReplyOutbox, type PendingFile } from "../src/outbox.ts";
@@ -35,9 +36,13 @@ const logger = createLogger("smoke");
 const config = loadConfig();
 const runtime = await PiRuntime.create(config, logger);
 
-// Enable the example clock tool plus real filesystem access to validate the
-// extensibility surface — including file upload staging — end-to-end.
-const registry = new IntegrationRegistry().register(clockIntegration).register(filesystemIntegration);
+// Enable the example clock tool plus real filesystem access and web search to
+// validate the extensibility surface — including file upload staging and a live
+// web search through pi's own providers — end-to-end.
+const registry = new IntegrationRegistry()
+  .register(clockIntegration)
+  .register(filesystemIntegration)
+  .register(webSearchIntegration);
 const outbox = new ReplyOutbox();
 const tools = await registry.buildTools({ runtime, config, outbox, logger: logger.child("integrations") });
 const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
@@ -120,6 +125,18 @@ assert(
   staged.some((f) => f.name === DEMO_FILE),
   "found a local file and staged it for upload (send_file → outbox)",
 );
+
+// 9) Web search: the bot looks up a current fact online through pi's providers.
+// Runs in its own conversation (a fresh session, like a separate channel) so it
+// doesn't share a lane with the file-send turn above.
+let webReply = "";
+await conversations.run("smoke-web", async (session) => {
+  await session.prompt("search the web: who won the 2022 fifa world cup? one word");
+  webReply = extractAssistantText(session.getLastAssistantMessage());
+});
+console.log("\n> search the web: who won the 2022 fifa world cup?");
+console.log(`  [reply] ${webReply}`);
+assert(/argentina/i.test(webReply), "answered from a live web search (web_search via pi)");
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");

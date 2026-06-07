@@ -5,10 +5,11 @@ like Poke does on iMessage — witty, warm, terse, human, never a corporate
 chatbot — and runs entirely on the **Oh My Pi** agent SDK: it uses pi's own
 authentication (no API keys here) and pi's agent/conversation system as the brain.
 
-It can reach your **files**: ask it to find something on the machine it runs on
-and send it to you on Discord, and it will. Beyond that it's built to grow —
-adding Google Calendar, Gmail, web search, smart-home control, etc. is one small
-file plus one line, no changes to the core.
+It can reach your **files** (find something on the machine it runs on and send
+it to you on Discord) and **search the web** for current information — both
+through pi, no extra API keys. Beyond that it's built to grow: adding Google
+Calendar, Gmail, smart-home control, etc. is one small folder plus one line, no
+changes to the core.
 
 ## How it works
 
@@ -62,6 +63,10 @@ bun start                 # or: bun dev  (watch mode)
   "list my Downloads". The bot searches the machine it runs on, reads text files,
   and uploads files straight into the chat. Scope it with `POKE_FILES_ROOT` and
   see the security note below.
+- **Ask it to look something up** — "what's the weather in Istanbul?", "search
+  the news on X", "who won last night's game?". It searches the web through pi's
+  own providers (whatever your pi login unlocks — Anthropic, OpenAI, …), so no
+  separate search key is needed.
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -158,10 +163,12 @@ src/
   integrations/             core stays flat; each integration gets a folder
     types.ts                Integration / IntegrationContext / defineTool
     registry.ts             integrations → persona capabilities + deduped tools
-    index.ts                the enabled set (filesystem on; add more here)
+    index.ts                the enabled set (filesystem + web search; add more)
     filesystem/             browse / search / read / send files from the host
       index.ts              the integration
       filesystem.test.ts    its unit tests
+    web-search/             search the web via pi's own providers (no extra key)
+      index.ts              the integration
     examples/clock.ts       a working integration template
   sessions/
     factory.ts              build/resume/delete a per-conversation pi session

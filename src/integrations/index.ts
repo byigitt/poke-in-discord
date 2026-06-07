@@ -2,7 +2,8 @@
  * The enabled integration set.
  *
  * This build enables filesystem access (browse/search/read/send files from the
- * host). To grow the bot further, build an Integration (see `examples/clock.ts`
+ * host) and web search. To grow the bot further, build an Integration (see
+ * `examples/clock.ts`
  * for a complete, type-checked template) and add it to the array below. The
  * persona and the agent's toolset update automatically; nothing else changes.
  *
@@ -15,7 +16,8 @@
  */
 import type { Integration } from "./types.ts";
 import { filesystemIntegration } from "./filesystem/index.ts";
+import { webSearchIntegration } from "./web-search/index.ts";
 
 export function enabledIntegrations(): Integration[] {
-  return [filesystemIntegration];
+  return [filesystemIntegration, webSearchIntegration];
 }
