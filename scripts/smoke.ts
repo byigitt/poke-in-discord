@@ -66,7 +66,7 @@ const persona = buildPersona({ botName: config.botName, capabilities: registry.c
 console.log(`\ntools: ${tools.map((t) => t.name).join(", ")}`);
 console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);
 
-const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
+const conversations = new ConversationSessions({ runtime, config, persona, tools, mcpTools: [], logger });
 const KEY = "smoke-channel";
 
 async function ask(text: string, images?: ImageContent[]): Promise<string[]> {

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "check": "bun run typecheck && bun test",
-    "smoke": "bun run scripts/smoke.ts"
+    "smoke": "bun run scripts/smoke.ts",
+    "mcp:check": "bun run scripts/mcp-check.ts"
   },
   "dependencies": {
     "@oh-my-pi/pi-ai": "^15.9.67",

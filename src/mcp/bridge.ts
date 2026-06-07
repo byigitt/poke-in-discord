@@ -1,13 +1,16 @@
 /**
  * MCP bridge — the long tail. Poke's own answer for "everything else" (Notion,
  * Linear, GitHub, Sentry, …) is MCP, and pi speaks MCP natively, so instead of
- * hand-writing dozens of integrations we let the operator drop a standard
- * `.mcp.json` next to the bot and every server's tools come along for the ride.
+ * hand-writing dozens of integrations we ride the standard MCP config.
  *
- * Gated like everything else: no `.mcp.json` ⇒ no MCP, no capability, no open
- * connections. When present, we connect once at startup (tools are shared across
- * conversations, same as integration tools) and disconnect on shutdown so stdio
- * servers don't outlive the bot.
+ * Opt-in: a `.mcp.json` next to the bot turns MCP on (no file ⇒ no MCP). Once on,
+ * pi discovers servers from the usual places — that `.mcp.json` PLUS your global
+ * MCP config (Claude Code's `~/.claude.json`, marketplace plugins, etc.) — so the
+ * servers you already use elsewhere come along for free. Tools load once at
+ * startup (cached, so no spawn), are shared across conversations, and the per-
+ * session factory registers them via `refreshMCPTools` (NOT customTools) — that's
+ * what actually lets the model call them. Unauthed HTTP servers log a warning and
+ * are skipped; everything else proceeds.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -30,8 +33,9 @@ export interface McpBridge {
 export const MCP_CONFIG_FILE = ".mcp.json";
 
 /**
- * Connect to the MCP servers declared in `<cwd>/.mcp.json`, or return null when
- * there's no config or nothing connects. Errors per server are logged, not fatal.
+ * Load MCP tools (the `.mcp.json` opt-in + your global MCP config). Returns null
+ * when MCP isn't opted in or no server yields tools. Per-server errors (e.g. an
+ * HTTP server needing OAuth) are logged, not fatal.
  */
 export async function loadMcpBridge(
   cwd: string,
@@ -44,16 +48,25 @@ export async function loadMcpBridge(
   for (const failure of result.errors) {
     logger.warn("mcp server failed to load", { server: failure.path, error: failure.error });
   }
-  if (result.connectedServers.length === 0) {
+  const tools = result.tools.map((loaded) => loaded.tool);
+  if (tools.length === 0) {
     await result.manager.disconnectAll().catch(() => {});
     return null;
   }
 
-  logger.info("mcp connected", { servers: result.connectedServers, tools: result.tools.length });
+  // `connectedServers` is empty when tools come from pi's cache (no live spawn at
+  // startup — the server is dialed lazily on first call), so fall back to each
+  // tool's source label so we still report what's available.
+  const servers =
+    result.connectedServers.length > 0
+      ? result.connectedServers
+      : [...new Set(result.tools.map((t) => t.path.replace(/^mcp:/, "").replace(/ via .*$/, "")))];
+
+  logger.info("mcp ready", { servers, tools: tools.length });
   return {
-    tools: result.tools.map((loaded) => loaded.tool),
-    capability: `Use tools from connected MCP servers: ${result.connectedServers.join(", ")}`,
-    servers: result.connectedServers,
+    tools,
+    capability: `Use tools from connected MCP servers: ${servers.join(", ")}`,
+    servers,
     dispose: () => result.manager.disconnectAll(),
   };
 }

@@ -26,6 +26,8 @@ export interface SessionFactoryDeps {
   readonly persona: string;
   /** Tools contributed by enabled integrations (empty in the base build). */
   readonly tools: CustomTool[];
+  /** MCP tools — registered via refreshMCPTools (not customTools) so the model can call them. */
+  readonly mcpTools: CustomTool[];
   readonly logger: Logger;
 }
 
@@ -94,6 +96,14 @@ export class ConversationSessionFactory {
       // Stable per-conversation id improves provider prompt caching + sticky auth.
       providerSessionId: `discord:${safeFileStem(key)}`,
     });
+
+    // MCP tools must be REGISTERED + activated via refreshMCPTools, not passed as
+    // customTools — otherwise the model can't actually call them (it hallucinates a
+    // `<use_mcp_tool>` text format instead). `activateAll` is meant for exactly this:
+    // externally-provisioned servers when the session's own MCP discovery is off.
+    if (this.deps.mcpTools.length > 0) {
+      await session.refreshMCPTools(this.deps.mcpTools, { activateAll: true });
+    }
 
     this.deps.logger.debug(resuming ? "resumed session" : "created session", {
       key,

@@ -117,9 +117,11 @@ enable the Calendar and Gmail APIs, add `<POKE_OAUTH_REDIRECT_BASE>/oauth/callba
 as an authorized redirect URI, and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
 in `.env`. Then, in chat: `connect google-calendar` or `connect gmail`.
 
-**Everything else (the long tail).** Drop a standard `.mcp.json` next to the bot
-(the same format Cursor/Claude use) and every MCP server's tools come along —
-Notion, Linear, GitHub, Sentry, and so on. No `.mcp.json`, no MCP.
+**Everything else (the long tail).** MCP. Drop a `.mcp.json` next to the bot to
+opt in (even `{}` works); pi then loads servers from it **and** your global MCP
+config — the same `~/.claude.json` / marketplace servers your other tools already
+use (Notion, Linear, GitHub, context7, …) come along for free. No `.mcp.json`, no
+MCP. Verify yours with `bun run scripts/mcp-check.ts`.
 
 Connect links bind to the requesting user, so the bot always sends them by DM.
 
@@ -233,7 +235,7 @@ src/
     server.ts               OAuth callback HTTP server
     commands.ts             connect / disconnect / accounts parsing
   mcp/
-    bridge.ts               load .mcp.json servers → tools (the long tail)
+    bridge.ts               opt-in MCP: discover servers (.mcp.json + global config) → tools
   reminders/
     store.ts                scheduled reminders (SQLite, survives restarts)
     scheduler.ts            polls + fires due reminders (offline catch-up, fire-once)
@@ -260,7 +262,7 @@ src/
     gmail/                  search / read / send mail (connect gmail)
     examples/clock.ts       a working integration template
   sessions/
-    factory.ts              build/resume/delete a per-conversation pi session
+    factory.ts              build/resume a session; registers MCP tools via refreshMCPTools
     store.ts                per-conversation serialization lanes + idle eviction
   discord/
     delivery.ts             Poke-style message splitting + file uploads (+ tests)
@@ -269,6 +271,7 @@ src/
   index.ts                  entrypoint (wires integrations, connections, MCP, bot)
 scripts/
   smoke.ts                  optional live end-to-end check (no Discord needed)
+  mcp-check.ts              optional live MCP check (needs MCP configured)
 ```
 
 ## Verify
@@ -277,4 +280,5 @@ scripts/
 bun run check    # typecheck + all tests, one command
 bun test         # just the deterministic tests
 bun run smoke    # optional: live check of auth + reply + memory + tools (needs pi login)
+bun run mcp:check # optional: live MCP check (loads servers + proves the agent can call them)
 ```

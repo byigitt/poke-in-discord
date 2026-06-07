@@ -62,15 +62,28 @@ async function main(): Promise<void> {
     logger: logger.child("integrations"),
   });
 
-  // The long tail: connect any MCP servers declared in .mcp.json and fold their
-  // tools in alongside the integration tools (shared across conversations).
+  // The long tail: connect MCP servers from your standard MCP config (.mcp.json,
+  // Claude Code, etc.). MCP tools are registered per-session via refreshMCPTools
+  // (NOT as customTools), which is what actually makes the model able to call them.
   const mcp = await loadMcpBridge(process.cwd(), runtime.authStorage, logger.child("mcp"));
-  const tools = mcp ? [...integrationTools, ...mcp.tools] : integrationTools;
+  const mcpTools = mcp?.tools ?? [];
   const capabilities = [...registry.capabilities(), ...(mcp?.capability ? [mcp.capability] : [])];
   const persona = buildPersona({ botName: config.botName, capabilities });
-  logger.info("persona assembled", { botName: config.botName, integrations: registry.size, tools: tools.length });
+  logger.info("persona assembled", {
+    botName: config.botName,
+    integrations: registry.size,
+    tools: integrationTools.length,
+    mcpTools: mcpTools.length,
+  });
 
-  const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
+  const conversations = new ConversationSessions({
+    runtime,
+    config,
+    persona,
+    tools: integrationTools,
+    mcpTools,
+    logger,
+  });
   conversations.start();
 
   // Only open the callback port when something is actually connectable.
