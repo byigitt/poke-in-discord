@@ -11,12 +11,15 @@
  * pi accepts natively. Use `defineTool` so `execute`'s `params` are fully typed
  * from the schema.
  */
-import type { CustomTool } from "@oh-my-pi/pi-coding-agent";
+import type { CustomTool, CustomToolContext } from "@oh-my-pi/pi-coding-agent";
 import type { TSchema } from "@oh-my-pi/pi-ai";
 import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { PiRuntime } from "../pi/runtime.ts";
 import type { ReplyOutbox } from "../outbox.ts";
+import type { ActorRegistry } from "../actor.ts";
+import type { ConnectionManager } from "../connections/manager.ts";
+import type { ConnectionSpec } from "../connections/oauth.ts";
 
 /** A model-callable tool. Re-exported so integrations import one name from here. */
 export type { CustomTool } from "@oh-my-pi/pi-coding-agent";
@@ -36,6 +39,10 @@ export interface IntegrationContext {
    * the turn finishes.
    */
   readonly outbox: ReplyOutbox;
+  /** Linked-account tokens. OAuth tools resolve the current user's token via {@link currentToken}. */
+  readonly connections: ConnectionManager;
+  /** Who is talking this turn, so a tool can find *that* user's connected accounts. */
+  readonly actor: ActorRegistry;
 }
 
 export interface Integration {
@@ -47,6 +54,14 @@ export interface Integration {
    * the persona's capability list so the assistant truthfully advertises it.
    */
   readonly capability?: string;
+  /** Plain env vars that must ALL be set for this integration to load (non-OAuth gating). */
+  readonly requires?: readonly string[];
+  /**
+   * An account the user links via `connect`. Declaring it both gates the
+   * integration on the OAuth client env being present and registers the provider
+   * so `connect <provider>` works. Tools then call {@link currentToken}.
+   */
+  readonly connection?: ConnectionSpec;
   /** Build this integration's tools. May be async (e.g. to set up a client). */
   tools(ctx: IntegrationContext): CustomTool[] | Promise<CustomTool[]>;
 }
@@ -58,4 +73,24 @@ export interface Integration {
  */
 export function defineTool<S extends TSchema, D = unknown>(tool: CustomTool<S, D>): CustomTool<S, D> {
   return tool;
+}
+
+/**
+ * Resolve a usable access token for the integration's connection, for whichever
+ * user is talking this turn. Returns null when there's no actor or the user
+ * hasn't linked the account — the tool should then tell them to `connect`.
+ *
+ * This is the one line every OAuth tool needs; it hides the actor + session +
+ * refresh plumbing so an integration stays about its API, not our wiring.
+ */
+export function currentToken(
+  ctx: IntegrationContext,
+  toolCtx: CustomToolContext,
+  provider: string,
+): Promise<string | null> {
+  const sessionKey = toolCtx.sessionManager.getSessionFile();
+  if (!sessionKey) return Promise.resolve(null);
+  const userId = ctx.actor.current(sessionKey);
+  if (!userId) return Promise.resolve(null);
+  return ctx.connections.accessToken(userId, provider);
 }

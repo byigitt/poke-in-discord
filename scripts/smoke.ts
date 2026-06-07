@@ -18,6 +18,9 @@ import { webSearchIntegration } from "../src/integrations/web-search/index.ts";
 import { ConversationSessions } from "../src/sessions/store.ts";
 import { extractAssistantText, toDiscordMessages } from "../src/discord/delivery.ts";
 import { ReplyOutbox, type PendingFile } from "../src/outbox.ts";
+import { ActorRegistry } from "../src/actor.ts";
+import { TokenStore } from "../src/connections/store.ts";
+import { ConnectionManager } from "../src/connections/manager.ts";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
@@ -44,7 +47,13 @@ const registry = new IntegrationRegistry()
   .register(filesystemIntegration)
   .register(webSearchIntegration);
 const outbox = new ReplyOutbox();
-const tools = await registry.buildTools({ runtime, config, outbox, logger: logger.child("integrations") });
+const actor = new ActorRegistry();
+const connections = new ConnectionManager(
+  new TokenStore(join(tmp, "connections.db")),
+  "http://localhost:8787/oauth/callback",
+  logger.child("connections"),
+);
+const tools = await registry.buildTools({ runtime, config, outbox, connections, actor, logger: logger.child("integrations") });
 const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
 console.log(`\ntools: ${tools.map((t) => t.name).join(", ")}`);
 console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);

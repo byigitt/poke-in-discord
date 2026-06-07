@@ -11,6 +11,9 @@ import { type OutboundChannel, extractAssistantText, sendBubbles, sendFiles, toD
 import type { ConversationSessions } from "../sessions/store.ts";
 import { fetchImages, selectImages, type SelectedImage } from "./attachments.ts";
 import type { ReplyOutbox } from "../outbox.ts";
+import type { ActorRegistry } from "../actor.ts";
+import type { ConnectionManager } from "../connections/manager.ts";
+import { matchProvider, parseConnectCommand } from "../connections/commands.ts";
 
 /** Typed verbatim by the user to wipe a conversation's memory. */
 const RESET_PHRASES = ["reset", "/reset", "new chat", "start over", "forget it", "wipe"] as const;
@@ -30,6 +33,10 @@ export class DiscordBot {
     private readonly supportsImages: boolean,
     /** Files an integration staged this turn are uploaded after the reply. */
     private readonly outbox: ReplyOutbox,
+    /** Account-linking: mints connect URLs and tracks who linked what. */
+    private readonly connections: ConnectionManager,
+    /** Records who is talking each turn so tools resolve that user's accounts. */
+    private readonly actor: ActorRegistry,
     logger: Logger,
   ) {
     this.logger = logger.child("discord");
@@ -63,7 +70,7 @@ export class DiscordBot {
   }
 
   /** Decide whether to engage, then strip the address tokens to the real text. */
-  private intent(message: Message): { key: string; text: string; images: SelectedImage[] } | null {
+  private intent(message: Message): { key: string; userId: string; text: string; images: SelectedImage[] } | null {
     if (message.author.bot) return null;
     if (!message.channel.isTextBased()) return null;
 
@@ -93,17 +100,23 @@ export class DiscordBot {
       else return null;
     }
 
-    return { key: message.channelId, text, images };
+    return { key: message.channelId, userId: message.author.id, text, images };
   }
 
   private async onMessage(message: Message): Promise<void> {
     const intent = this.intent(message);
     if (!intent) return;
-    const { key, text, images } = intent;
+    const { key, userId, text, images } = intent;
     const channel = message.channel as unknown as OutboundChannel;
 
     if (RESET_PHRASES.includes(text.toLowerCase() as (typeof RESET_PHRASES)[number])) {
       await this.handleReset(key, channel);
+      return;
+    }
+
+    // Account linking ("connect google-calendar", "accounts", "disconnect …").
+    // Only intercepted when something is actually connectable.
+    if (this.connections.hasProviders() && (await this.handleConnections(message, text))) {
       return;
     }
 
@@ -113,7 +126,10 @@ export class DiscordBot {
       await this.conversations.run(key, async (session) => {
         // Drop anything a previously-aborted turn left staged, so it can't leak
         // into this reply. Files staged during this turn are sent below.
-        if (session.sessionFile) this.outbox.drain(session.sessionFile);
+        if (session.sessionFile) {
+          this.outbox.drain(session.sessionFile);
+          this.actor.enter(session.sessionFile, userId);
+        }
         await channel.sendTyping().catch(() => {});
         const refresh = setInterval(() => void channel.sendTyping().catch(() => {}), TYPING_REFRESH_MS);
         let reply: string;
@@ -138,6 +154,7 @@ export class DiscordBot {
           reply = extractAssistantText(session.getLastAssistantMessage());
         } finally {
           clearInterval(refresh);
+          if (session.sessionFile) this.actor.leave(session.sessionFile);
         }
 
         const messages = toDiscordMessages(reply, this.config.maxReplyMessages);
@@ -163,6 +180,86 @@ export class DiscordBot {
     } catch (error) {
       this.logger.error("reset failed", { key, error });
       await channel.send("couldn't wipe that just now, try again in a sec").catch(() => {});
+    }
+  }
+
+  /** Handle account-linking commands. Returns true if it consumed the message. */
+  private async handleConnections(message: Message, text: string): Promise<boolean> {
+    const command = parseConnectCommand(text);
+    if (!command) return false;
+    if (command.kind === "list") {
+      await this.deliverPrivately(message, this.accountsSummary(message.author.id));
+    } else if (command.kind === "connect") {
+      await this.startConnect(message, command.app);
+    } else {
+      await this.endConnect(message, command.app);
+    }
+    return true;
+  }
+
+  private accountsSummary(userId: string): string {
+    const linked = this.connections.connections(userId);
+    const available = this.connections.catalog().map((c) => c.id);
+    return [
+      linked.length > 0 ? `connected: ${linked.join(", ")}` : "you haven't connected anything yet.",
+      `available: ${available.join(", ")}`,
+      "say `connect <name>` to link one, `disconnect <name>` to unlink.",
+    ].join("\n");
+  }
+
+  private async startConnect(message: Message, appRaw: string | undefined): Promise<void> {
+    const app = this.resolveApp(appRaw);
+    if (!app) {
+      const names = this.connections.catalog().map((c) => `\`${c.id}\``).join(", ");
+      await this.deliverPrivately(
+        message,
+        appRaw ? `I can't connect "${appRaw}". I can connect: ${names}.` : `what should I connect? options: ${names}.`,
+      );
+      return;
+    }
+    const url = this.connections.beginConnect(message.author.id, app);
+    if (!url) {
+      await this.deliverPrivately(message, "that one isn't set up right now.");
+      return;
+    }
+    const label = this.connections.label(app) ?? app;
+    await this.deliverPrivately(message, `open this to connect ${label} (expires in ~10 min):\n${url}`);
+    this.logger.info("connect started", { app });
+  }
+
+  private async endConnect(message: Message, appRaw: string | undefined): Promise<void> {
+    const app = this.resolveApp(appRaw);
+    if (!app) {
+      await this.deliverPrivately(message, appRaw ? `I don't know "${appRaw}".` : "disconnect what? say `disconnect <name>`.");
+      return;
+    }
+    const removed = this.connections.disconnect(message.author.id, app);
+    await this.deliverPrivately(
+      message,
+      removed ? `disconnected ${this.connections.label(app) ?? app}.` : `you didn't have ${app} connected.`,
+    );
+  }
+
+  /** Map free text ("google calendar") to a known connected-provider id, or null. */
+  private resolveApp(raw: string | undefined): string | null {
+    return matchProvider(raw, this.connections.catalog().map((c) => c.id));
+  }
+
+  /**
+   * Send something only the requesting user should see (connect URLs bind to
+   * them; in a shared channel, anyone could otherwise click). Always DMs; nudges
+   * in-channel when the command came from a server.
+   */
+  private async deliverPrivately(message: Message, content: string): Promise<void> {
+    try {
+      await message.author.send(content);
+      if (message.inGuild()) {
+        await (message.channel as unknown as OutboundChannel).send("📬 sent you a DM").catch(() => {});
+      }
+    } catch {
+      await (message.channel as unknown as OutboundChannel)
+        .send("I couldn't DM you — enable DMs from server members so I can send that privately.")
+        .catch(() => {});
     }
   }
 }

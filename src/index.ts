@@ -1,17 +1,23 @@
 /**
- * Entrypoint. Boots pi's auth + model systems, assembles the persona and tools
- * from the enabled integrations, and starts the Discord bot. Shuts down cleanly
- * so in-flight conversations flush their history to disk.
+ * Entrypoint. Boots pi's auth + model systems, env-gates the integration catalog,
+ * wires the account-linking framework (token store + OAuth manager + callback
+ * server), assembles the persona and tools, and starts the Discord bot. Shuts
+ * down cleanly so in-flight conversations flush their history to disk.
  */
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
 import { buildPersona } from "./pi/persona.ts";
 import { PiRuntime } from "./pi/runtime.ts";
 import { IntegrationRegistry } from "./integrations/registry.ts";
-import { enabledIntegrations } from "./integrations/index.ts";
+import { ALL_INTEGRATIONS, selectConfigured } from "./integrations/index.ts";
+import { resolveProvider } from "./connections/oauth.ts";
+import { TokenStore } from "./connections/store.ts";
+import { ConnectionManager } from "./connections/manager.ts";
+import { OAuthCallbackServer } from "./connections/server.ts";
 import { ConversationSessions } from "./sessions/store.ts";
 import { DiscordBot } from "./discord/bot.ts";
 import { ReplyOutbox } from "./outbox.ts";
+import { ActorRegistry } from "./actor.ts";
 
 const logger = createLogger("poke");
 
@@ -20,20 +26,51 @@ async function main(): Promise<void> {
 
   const runtime = await PiRuntime.create(config, logger);
 
-  // Shared between the file tools (which stage files to upload) and the bot
-  // (which drains and uploads them after each turn).
+  // Account-linking framework: per-user OAuth tokens, the manager that mints
+  // connect URLs and hands fresh tokens to tools, the per-turn speaker, and the
+  // file-upload buffer.
+  const tokenStore = new TokenStore(config.connectionsFile);
+  const redirectUri = `${config.oauthRedirectBase.replace(/\/+$/, "")}/oauth/callback`;
+  const connections = new ConnectionManager(tokenStore, redirectUri, logger.child("connections"));
+  const actor = new ActorRegistry();
   const outbox = new ReplyOutbox();
-  const registry = new IntegrationRegistry().registerAll(enabledIntegrations());
-  const tools = await registry.buildTools({ runtime, config, outbox, logger: logger.child("integrations") });
+
+  // Env-gate the catalog: only configured apps load. Register an OAuth provider
+  // for each connectable app that is configured so `connect <app>` works.
+  const { enabled, skipped } = selectConfigured(ALL_INTEGRATIONS, process.env);
+  for (const skip of skipped) {
+    logger.info("integration skipped — missing config", { name: skip.name, missing: skip.missing });
+  }
+  for (const integration of enabled) {
+    if (!integration.connection) continue;
+    const provider = resolveProvider(integration.connection, process.env);
+    if (provider) connections.registerProvider(provider);
+  }
+
+  const registry = new IntegrationRegistry().registerAll(enabled);
+  const tools = await registry.buildTools({
+    runtime,
+    config,
+    outbox,
+    connections,
+    actor,
+    logger: logger.child("integrations"),
+  });
   const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
   logger.info("persona assembled", { botName: config.botName, integrations: registry.size, tools: tools.length });
 
   const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
   conversations.start();
 
+  // Only open the callback port when something is actually connectable.
+  const oauthServer = connections.hasProviders()
+    ? new OAuthCallbackServer(connections, config.oauthPort, logger.child("oauth"))
+    : null;
+  oauthServer?.start();
+
   const supportsImages = runtime.model.input.includes("image");
   logger.info("vision support", { supportsImages });
-  const bot = new DiscordBot(config, conversations, supportsImages, outbox, logger);
+  const bot = new DiscordBot(config, conversations, supportsImages, outbox, connections, actor, logger);
   await bot.start();
 
   let shuttingDown = false;
@@ -42,7 +79,9 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info("shutting down", { signal });
     await bot.stop().catch((error) => logger.error("bot stop failed", { error }));
+    oauthServer?.stop();
     await conversations.dispose().catch((error) => logger.error("session flush failed", { error }));
+    tokenStore.close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

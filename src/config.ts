@@ -6,6 +6,7 @@
  * default that fails mysteriously later.
  */
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "auto"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -40,6 +41,12 @@ export interface Config {
   readonly filesRoot: string;
   /** Largest file (bytes) the bot will read inline or upload to Discord. */
   readonly fileMaxBytes: number;
+  /** Port for the local OAuth callback server that completes account connects. */
+  readonly oauthPort: number;
+  /** Public base URL the OAuth provider redirects back to. Default http://localhost:<port>. */
+  readonly oauthRedirectBase: string;
+  /** SQLite file holding per-user connected-account tokens. */
+  readonly connectionsFile: string;
 }
 
 function required(name: string): string {
@@ -75,13 +82,16 @@ function positiveInt(name: string, fallback: number): number {
 }
 
 export function loadConfig(): Config {
+  // Hoisted: later fields derive their defaults from these.
+  const sessionDir = optional("POKE_SESSION_DIR", ".sessions");
+  const oauthPort = positiveInt("POKE_OAUTH_PORT", 8787);
   return {
     discordToken: required("DISCORD_TOKEN"),
     botName: optional("POKE_BOT_NAME", "Poke"),
     model: process.env.POKE_MODEL?.trim() || undefined,
     thinking: oneOf("POKE_THINKING", THINKING_LEVELS, "off"),
     respondTo: oneOf("POKE_RESPOND_TO", RESPOND_MODES, "mention"),
-    sessionDir: optional("POKE_SESSION_DIR", ".sessions"),
+    sessionDir,
     sessionIdleMs: positiveInt("POKE_SESSION_IDLE_MINUTES", 30) * 60_000,
     maxReplyMessages: positiveInt("POKE_MAX_REPLY_MESSAGES", 5),
     imageMaxBytes: positiveInt("POKE_MAX_IMAGE_MB", 8) * 1024 * 1024,
@@ -89,5 +99,8 @@ export function loadConfig(): Config {
     agentDir: process.env.POKE_AGENT_DIR?.trim() || undefined,
     filesRoot: optional("POKE_FILES_ROOT", homedir()),
     fileMaxBytes: positiveInt("POKE_FILES_MAX_MB", 8) * 1024 * 1024,
+    oauthPort,
+    oauthRedirectBase: optional("POKE_OAUTH_REDIRECT_BASE", `http://localhost:${oauthPort}`),
+    connectionsFile: optional("POKE_CONNECTIONS_FILE", join(sessionDir, "connections.db")),
   };
 }
