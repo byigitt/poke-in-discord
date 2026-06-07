@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectConfigured } from "./index.ts";
+import { ALL_INTEGRATIONS, selectConfigured } from "./index.ts";
 import type { Integration } from "./types.ts";
 
 const noTools: Integration["tools"] = () => [];
@@ -41,5 +41,17 @@ describe("selectConfigured", () => {
 
   test("blank env values do not count as configured", () => {
     expect(selectConfigured([needsKey], { FOO_KEY: "   " }).enabled).toEqual([]);
+  });
+
+  test("real catalog: filesystem + web-search always load; google-calendar is gated on Google creds", () => {
+    const bare = selectConfigured(ALL_INTEGRATIONS, {});
+    expect(bare.enabled.map((i) => i.name)).toEqual(["filesystem", "web-search"]);
+    expect(bare.skipped.map((s) => s.name)).toContain("google-calendar");
+
+    const withGoogle = selectConfigured(ALL_INTEGRATIONS, {
+      GOOGLE_CLIENT_ID: "id",
+      GOOGLE_CLIENT_SECRET: "secret",
+    });
+    expect(withGoogle.enabled.map((i) => i.name)).toContain("google-calendar");
   });
 });

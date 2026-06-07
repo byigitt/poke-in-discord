@@ -11,9 +11,14 @@
 import type { Integration } from "./types.ts";
 import { filesystemIntegration } from "./filesystem/index.ts";
 import { webSearchIntegration } from "./web-search/index.ts";
+import { googleCalendarIntegration } from "./google-calendar/index.ts";
 
 /** Every integration this build knows how to run — configured or not. */
-export const ALL_INTEGRATIONS: readonly Integration[] = [filesystemIntegration, webSearchIntegration];
+export const ALL_INTEGRATIONS: readonly Integration[] = [
+  filesystemIntegration,
+  webSearchIntegration,
+  googleCalendarIntegration,
+];
 
 /** One integration that couldn't load, and exactly which env vars it's missing. */
 export interface SkippedIntegration {

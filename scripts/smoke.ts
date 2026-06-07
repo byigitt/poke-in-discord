@@ -21,6 +21,8 @@ import { ReplyOutbox, type PendingFile } from "../src/outbox.ts";
 import { ActorRegistry } from "../src/actor.ts";
 import { TokenStore } from "../src/connections/store.ts";
 import { ConnectionManager } from "../src/connections/manager.ts";
+import { resolveProvider } from "../src/connections/oauth.ts";
+import { googleCalendarIntegration } from "../src/integrations/google-calendar/index.ts";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
@@ -146,6 +148,20 @@ await conversations.run("smoke-web", async (session) => {
 console.log("\n> search the web: who won the 2022 fifa world cup?");
 console.log(`  [reply] ${webReply}`);
 assert(/argentina/i.test(webReply), "answered from a live web search (web_search via pi)");
+
+// 10) Account linking: the Google Calendar connect flow yields a real consent URL.
+// (No live Google account — this verifies the framework + integration wiring.)
+const gcalProvider = resolveProvider(googleCalendarIntegration.connection!, {
+  GOOGLE_CLIENT_ID: "smoke-client-id",
+  GOOGLE_CLIENT_SECRET: "smoke-secret",
+});
+connections.registerProvider(gcalProvider!);
+const connectUrl = connections.beginConnect("smoke-user", "google-calendar") ?? "";
+console.log(`\n> connect google-calendar\n  ${connectUrl.slice(0, 90)}…`);
+assert(
+  connectUrl.includes("accounts.google.com") && connectUrl.includes("calendar.events"),
+  "connect google-calendar produces a real Google consent URL",
+);
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");
