@@ -5,11 +5,12 @@ like Poke does on iMessage — witty, warm, terse, human, never a corporate
 chatbot — and runs entirely on the **Oh My Pi** agent SDK: it uses pi's own
 authentication (no API keys here) and pi's agent/conversation system as the brain.
 
-It can reach your **files** (find something on the machine it runs on and send
-it to you on Discord) and **search the web** for current information — both
-through pi, no extra API keys. Beyond that it's built to grow: adding Google
-Calendar, Gmail, smart-home control, etc. is one small folder plus one line, no
-changes to the core.
+It can reach your **files** (find something on the machine it runs on and send it
+to you on Discord) and **search the web**, both through pi with no extra keys. It
+also connects to your **accounts** — Google Calendar and Gmail out of the box,
+plus anything with an MCP server (Notion, Linear, GitHub, …) — the same apps Poke
+integrates with. Each app loads only when it's configured, and every user links
+their own account right from chat with `connect`.
 
 ## How it works
 
@@ -67,6 +68,10 @@ bun start                 # or: bun dev  (watch mode)
   the news on X", "who won last night's game?". It searches the web through pi's
   own providers (whatever your pi login unlocks — Anthropic, OpenAI, …), so no
   separate search key is needed.
+- **Connect your accounts** — `connect google-calendar`, `connect gmail`, or just
+  `accounts` to see what's available. The bot DMs you a consent link; authorize
+  once and it can check your calendar, draft and send mail, and so on.
+  `disconnect <app>` unlinks.
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -79,6 +84,26 @@ by `POKE_FILES_MAX_MB`. But within that root the bot can read and send **any**
 file to whoever it's chatting with. So keep it in DMs or a private server, point
 `POKE_FILES_ROOT` at just the folder you want it to reach, and remember that
 anyone it talks to can ask for those files.
+
+### Connecting accounts (Google, MCP, …)
+
+App integrations are **env-gated**: one only loads when its credentials are
+present, so the bot never offers something it can't actually do. Once an app is
+configured, each Discord user links their *own* account from chat — the bot DMs a
+consent link, a small local server catches the OAuth redirect, and the tokens are
+stored per user and refreshed automatically.
+
+**Google (Calendar + Gmail).** Create an OAuth client at the
+[Google Cloud Console](https://console.cloud.google.com) (Web application),
+enable the Calendar and Gmail APIs, add `<POKE_OAUTH_REDIRECT_BASE>/oauth/callback`
+as an authorized redirect URI, and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+in `.env`. Then, in chat: `connect google-calendar` or `connect gmail`.
+
+**Everything else (the long tail).** Drop a standard `.mcp.json` next to the bot
+(the same format Cursor/Claude use) and every MCP server's tools come along —
+Notion, Linear, GitHub, Sentry, and so on. No `.mcp.json`, no MCP.
+
+Connect links bind to the requesting user, so the bot always sends them by DM.
 
 ## Configuration
 
@@ -98,6 +123,10 @@ All via `.env` (see `.env.example`):
 | `POKE_MAX_IMAGES` | `4` | Most images forwarded from a single message. |
 | `POKE_FILES_ROOT` | home dir | Folder the file tools may browse, read, and send from. Paths are confined under it. |
 | `POKE_FILES_MAX_MB` | `8` | Largest file the bot will read inline or upload to Discord. |
+| `POKE_OAUTH_PORT` | `8787` | Port for the local OAuth callback server (account connect). |
+| `POKE_OAUTH_REDIRECT_BASE` | `http://localhost:<port>` | Public base URL providers redirect back to; must match your registered redirect URI. |
+| `POKE_CONNECTIONS_FILE` | `<session dir>/connections.db` | SQLite file of per-user linked-account tokens. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Google OAuth client; set both to enable Google Calendar + Gmail. |
 | `POKE_AGENT_DIR` | `~/.omp/agent` | Override pi's credential/model dir. |
 
 ## Extending it (the whole point)
@@ -135,13 +164,15 @@ moment you enable one, the assistant truthfully advertises it and can call it.
    };
    ```
 
-2. Enable it in `src/integrations/index.ts`:
+2. Add it to the catalog in `src/integrations/index.ts`:
 
    ```ts
    import { googleCalendar } from "./google-calendar/index.ts";
-   export function enabledIntegrations(): Integration[] {
-     return [googleCalendar];
-   }
+   export const ALL_INTEGRATIONS: readonly Integration[] = [
+     filesystemIntegration,
+     webSearchIntegration,
+     googleCalendar,
+   ];
    ```
 
 That's it — the persona's capability list, the agent's toolset, and tool-name
@@ -150,6 +181,14 @@ collision checks all update automatically. Tool params are authored with Zod v4
 `execute`. Tools get a `ctx` with the shared pi runtime, config, and a scoped
 logger.
 
+**Gating & connections.** An integration declares what it needs and the loader
+enables it only when that's satisfied: `requires: ["SOME_API_KEY"]` for a plain
+key, or a `connection` for OAuth apps (Google Calendar/Gmail show the pattern). A
+`connection` both gates the integration on its client env and registers it for
+`connect <provider>`; tools then call `currentToken(ctx, toolCtx, provider)` to
+get the current user's token. No connect-flow plumbing leaks into the integration.
+For apps you don't want to hand-write, a `.mcp.json` brings their tools in via MCP.
+
 ## Project layout
 
 ```
@@ -157,18 +196,30 @@ src/
   config.ts                 env → typed, validated config
   logger.ts                 minimal leveled logger
   outbox.ts                 staged files → uploaded with the next reply
+  actor.ts                  the current speaker each turn (for per-user connections)
+  connections/              account-linking framework
+    oauth.ts                OAuth 2.0 + PKCE helpers, ConnectionSpec, resolveProvider
+    store.ts                per-user token store (SQLite)
+    manager.ts              providers, in-flight connects, token refresh
+    server.ts               OAuth callback HTTP server
+    commands.ts             connect / disconnect / accounts parsing
+  mcp/
+    bridge.ts               load .mcp.json servers → tools (the long tail)
   pi/
     runtime.ts              pi auth + model discovery + model resolution
     persona.ts              the Poke voice (Discord-adapted), capability-injected
   integrations/             core stays flat; each integration gets a folder
     types.ts                Integration / IntegrationContext / defineTool
     registry.ts             integrations → persona capabilities + deduped tools
-    index.ts                the enabled set (filesystem + web search; add more)
+    index.ts                catalog + env-gated selection (selectConfigured)
     filesystem/             browse / search / read / send files from the host
       index.ts              the integration
       filesystem.test.ts    its unit tests
     web-search/             search the web via pi's own providers (no extra key)
       index.ts              the integration
+    google/                 shared Google OAuth + API helpers (Calendar, Gmail)
+    google-calendar/        list / quick-add / create events (connect google-calendar)
+    gmail/                  search / read / send mail (connect gmail)
     examples/clock.ts       a working integration template
   sessions/
     factory.ts              build/resume/delete a per-conversation pi session
@@ -177,7 +228,7 @@ src/
     delivery.ts             Poke-style message splitting + file uploads (+ tests)
     attachments.ts          image-attachment selection + fetch (+ unit tests)
     bot.ts                  gateway wiring, gating, typing, reset
-  index.ts                  entrypoint
+  index.ts                  entrypoint (wires integrations, connections, MCP, bot)
 scripts/
   smoke.ts                  optional live end-to-end check (no Discord needed)
 ```
