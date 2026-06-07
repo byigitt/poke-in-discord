@@ -43,15 +43,19 @@ describe("selectConfigured", () => {
     expect(selectConfigured([needsKey], { FOO_KEY: "   " }).enabled).toEqual([]);
   });
 
-  test("real catalog: filesystem + web-search always load; google-calendar is gated on Google creds", () => {
+  test("real catalog: filesystem + web-search always load; Google apps gate on Google creds", () => {
     const bare = selectConfigured(ALL_INTEGRATIONS, {});
     expect(bare.enabled.map((i) => i.name)).toEqual(["filesystem", "web-search"]);
-    expect(bare.skipped.map((s) => s.name)).toContain("google-calendar");
+    const skippedNames = bare.skipped.map((s) => s.name);
+    expect(skippedNames).toContain("google-calendar");
+    expect(skippedNames).toContain("gmail");
 
     const withGoogle = selectConfigured(ALL_INTEGRATIONS, {
       GOOGLE_CLIENT_ID: "id",
       GOOGLE_CLIENT_SECRET: "secret",
     });
-    expect(withGoogle.enabled.map((i) => i.name)).toContain("google-calendar");
+    const enabledNames = withGoogle.enabled.map((i) => i.name);
+    expect(enabledNames).toContain("google-calendar");
+    expect(enabledNames).toContain("gmail");
   });
 });
