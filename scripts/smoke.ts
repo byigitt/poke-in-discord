@@ -195,6 +195,22 @@ await conversations.run("smoke-nudge", async (session) => {
 console.log(`\n[reminder fires]\n  [reply] ${nudge}`);
 assert(nudge.trim().length > 0 && /stretch|leg/i.test(nudge), "delivers a fired reminder as a natural nudge");
 
+// 13) Recurring reminders: the model schedules a cron-based (weekly/daily) one.
+let recurReply = "";
+await conversations.run("smoke-recur", async (session) => {
+  if (session.sessionFile) actor.enter(session.sessionFile, { userId: "recur-user", channelId: "smoke-recur" });
+  try {
+    await session.prompt("every weekday at 9am, remind me to check standup");
+    recurReply = extractAssistantText(session.getLastAssistantMessage());
+  } finally {
+    if (session.sessionFile) actor.leave(session.sessionFile);
+  }
+});
+console.log(`\n> every weekday at 9am, remind me to check standup\n  [reply] ${recurReply}`);
+const recurring = reminderStore.listForUser("recur-user");
+assert(recurring.length >= 1 && Boolean(recurring.at(-1)!.cron), "scheduled a recurring (cron) reminder");
+console.log(`  [stored cron] ${recurring.at(-1)!.cron}`);
+
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");
 process.exit(0);

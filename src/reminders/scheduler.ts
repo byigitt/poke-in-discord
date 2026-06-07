@@ -8,6 +8,7 @@
  * reminder is removed after its delivery attempt — fire-once, never stuck.
  */
 import type { Logger } from "../logger.ts";
+import { cronNext } from "./cron.ts";
 import type { Reminder, ReminderStore } from "./store.ts";
 
 const DEFAULT_POLL_MS = 15_000;
@@ -49,11 +50,27 @@ export class ReminderScheduler {
         } catch (error) {
           this.logger.error("reminder delivery failed", { id: reminder.id, error });
         } finally {
-          this.store.remove(reminder.id);
+          this.rescheduleOrRemove(reminder);
         }
       }
     } finally {
       this.ticking = false;
     }
+  }
+
+  /** After firing: recurring reminders roll to their next time; one-shots are removed. */
+  private rescheduleOrRemove(reminder: Reminder): void {
+    if (reminder.cron) {
+      const next = cronNext(reminder.cron, new Date());
+      if (next) {
+        this.store.reschedule(reminder.id, next.getTime());
+        return;
+      }
+      this.logger.warn("recurring reminder has no future occurrence; dropping", {
+        id: reminder.id,
+        cron: reminder.cron,
+      });
+    }
+    this.store.remove(reminder.id);
   }
 }

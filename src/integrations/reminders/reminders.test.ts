@@ -91,12 +91,40 @@ describe("set_reminder", () => {
   });
 });
 
+describe("set_reminder (recurring / cron)", () => {
+  test("schedules a recurring reminder, storing the cron with a future first run", async () => {
+    const res = await tools.get("set_reminder")!.execute("c", { text: "standup", cron: "0 9 * * 1-5" }, undefined, known());
+    expect(res.isError).toBeFalsy();
+    const stored = store.listForUser("u1");
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.cron).toBe("0 9 * * 1-5");
+    expect(stored[0]!.dueAt).toBeGreaterThan(Date.now());
+  });
+
+  test("cron takes precedence over in_minutes", async () => {
+    await tools.get("set_reminder")!.execute("c", { text: "x", cron: "0 9 * * *", in_minutes: 5 }, undefined, known());
+    expect(store.listForUser("u1")[0]!.cron).toBe("0 9 * * *");
+  });
+
+  test("rejects an invalid cron and stores nothing", async () => {
+    const res = await tools.get("set_reminder")!.execute("c", { text: "x", cron: "not-a-cron" }, undefined, known());
+    expect(res.isError).toBe(true);
+    expect(store.listForUser("u1")).toHaveLength(0);
+  });
+});
+
 describe("list_reminders & cancel_reminder", () => {
   test("lists the user's reminders with ids", async () => {
     store.add({ userId: "u1", channelId: "c1", text: "one", dueAt: Date.now() + 1000 });
     const res = await tools.get("list_reminders")!.execute("c", {}, undefined, known());
     expect(res.isError).toBeFalsy();
     expect(textOf(res)).toContain("one");
+  });
+
+  test("shows recurrence for cron reminders", async () => {
+    store.add({ userId: "u1", channelId: "c1", text: "weekly", dueAt: Date.now() + 1000, cron: "0 9 * * 1" });
+    const res = await tools.get("list_reminders")!.execute("c", {}, undefined, known());
+    expect(textOf(res)).toContain("0 9 * * 1");
   });
 
   test("reports an empty list cleanly", async () => {

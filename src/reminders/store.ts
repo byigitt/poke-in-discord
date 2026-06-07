@@ -17,6 +17,8 @@ export interface Reminder {
   readonly text: string;
   /** When to fire, epoch ms. */
   readonly dueAt: number;
+  /** Cron expression when recurring; undefined for a one-shot reminder. */
+  readonly cron?: string;
 }
 
 interface ReminderRow {
@@ -25,10 +27,12 @@ interface ReminderRow {
   channel: string;
   text: string;
   due_at: number;
+  cron: string | null;
 }
 
 function toReminder(row: ReminderRow): Reminder {
-  return { id: row.id, userId: row.user, channelId: row.channel, text: row.text, dueAt: row.due_at };
+  const base = { id: row.id, userId: row.user, channelId: row.channel, text: row.text, dueAt: row.due_at };
+  return row.cron ? { ...base, cron: row.cron } : base;
 }
 
 export class ReminderStore {
@@ -45,9 +49,15 @@ export class ReminderStore {
          channel TEXT NOT NULL,
          text TEXT NOT NULL,
          due_at INTEGER NOT NULL,
-         created_at INTEGER NOT NULL
+         created_at INTEGER NOT NULL,
+         cron TEXT
        )`,
     );
+    // Migrate older DBs that predate recurring reminders.
+    const columns = this.db.query<{ name: string }, []>("PRAGMA table_info(reminders)").all();
+    if (!columns.some((c) => c.name === "cron")) {
+      this.db.run("ALTER TABLE reminders ADD COLUMN cron TEXT");
+    }
     try {
       chmodSync(filePath, 0o600);
     } catch {
@@ -56,15 +66,17 @@ export class ReminderStore {
   }
 
   /** Persist a reminder and return it with its assigned id. */
-  add(input: { userId: string; channelId: string; text: string; dueAt: number }): Reminder {
-    const result = this.db.run("INSERT INTO reminders (user, channel, text, due_at, created_at) VALUES (?, ?, ?, ?, ?)", [
-      input.userId,
-      input.channelId,
-      input.text,
-      input.dueAt,
-      Date.now(),
-    ]);
+  add(input: { userId: string; channelId: string; text: string; dueAt: number; cron?: string }): Reminder {
+    const result = this.db.run(
+      "INSERT INTO reminders (user, channel, text, due_at, created_at, cron) VALUES (?, ?, ?, ?, ?, ?)",
+      [input.userId, input.channelId, input.text, input.dueAt, Date.now(), input.cron ?? null],
+    );
     return { id: Number(result.lastInsertRowid), ...input };
+  }
+
+  /** Move a recurring reminder to its next fire time. Returns whether a row changed. */
+  reschedule(id: number, dueAt: number): boolean {
+    return this.db.run("UPDATE reminders SET due_at = ? WHERE id = ?", [dueAt, id]).changes > 0;
   }
 
   /** Reminders that are due at or before `now`, oldest first. */

@@ -79,4 +79,21 @@ describe("ReminderScheduler.tick", () => {
     expect(maxActive).toBe(1);
     expect(deliveries).toBe(1);
   });
+
+  test("recurring reminders are rescheduled to the future, not removed", async () => {
+    store.add({ userId: "u", channelId: "c", text: "daily", dueAt: Date.now() - 1000, cron: "*/5 * * * *" });
+    const delivered: Reminder[] = [];
+    const scheduler = new ReminderScheduler(store, async (r) => void delivered.push(r), silent);
+
+    await scheduler.tick();
+    expect(delivered).toHaveLength(1);
+
+    const remaining = store.listForUser("u");
+    expect(remaining).toHaveLength(1); // still there, rolled forward
+    expect(remaining[0]!.cron).toBe("*/5 * * * *");
+    expect(remaining[0]!.dueAt).toBeGreaterThan(Date.now());
+
+    await scheduler.tick(); // not due again yet
+    expect(delivered).toHaveLength(1);
+  });
 });

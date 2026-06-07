@@ -73,9 +73,11 @@ bun start                 # or: bun dev  (watch mode)
   `accounts` to see what's available. The bot DMs you a consent link; authorize
   once and it can check your calendar, draft and send mail, and so on.
   `disconnect <app>` unlinks.
-- **Set a reminder** — "remind me to call mom in 20 minutes", "remind me tomorrow
-  at 9 to ship the build". It nudges you in its own voice when the time comes, and
-  reminders survive restarts. Ask what's pending or to cancel one too.
+- **Set a reminder** — one-off ("remind me to call mom in 20 minutes", "tomorrow
+  at 9 ship the build") or recurring ("every weekday at 9 remind me to check
+  standup", "every morning at 8 take my meds"). It nudges you in its own voice
+  when it's due, recurring ones repeat on schedule, and they survive restarts.
+  Ask what's pending or to cancel one too.
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -213,6 +215,7 @@ src/
   reminders/
     store.ts                scheduled reminders (SQLite, survives restarts)
     scheduler.ts            polls + fires due reminders (offline catch-up, fire-once)
+    cron.ts                 tiny cron evaluator for recurring reminders
   pi/
     runtime.ts              pi auth + model discovery + model resolution
     persona.ts              the Poke voice (Discord-adapted), capability-injected
