@@ -5,6 +5,7 @@
  * required and missing is a hard, explained startup failure — never a silent
  * default that fails mysteriously later.
  */
+import { homedir } from "node:os";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "auto"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -35,6 +36,10 @@ export interface Config {
   readonly maxImagesPerMessage: number;
   /** Override for pi's agent config dir (credentials/models). undefined → ~/.omp/agent. */
   readonly agentDir: string | undefined;
+  /** Root directory the file tools may read from and upload. Paths are confined under it. */
+  readonly filesRoot: string;
+  /** Largest file (bytes) the bot will read inline or upload to Discord. */
+  readonly fileMaxBytes: number;
 }
 
 function required(name: string): string {
@@ -82,5 +87,7 @@ export function loadConfig(): Config {
     imageMaxBytes: positiveInt("POKE_MAX_IMAGE_MB", 8) * 1024 * 1024,
     maxImagesPerMessage: positiveInt("POKE_MAX_IMAGES", 4),
     agentDir: process.env.POKE_AGENT_DIR?.trim() || undefined,
+    filesRoot: optional("POKE_FILES_ROOT", homedir()),
+    fileMaxBytes: positiveInt("POKE_FILES_MAX_MB", 8) * 1024 * 1024,
   };
 }

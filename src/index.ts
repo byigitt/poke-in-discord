@@ -11,6 +11,7 @@ import { IntegrationRegistry } from "./integrations/registry.ts";
 import { enabledIntegrations } from "./integrations/index.ts";
 import { ConversationSessions } from "./sessions/store.ts";
 import { DiscordBot } from "./discord/bot.ts";
+import { ReplyOutbox } from "./outbox.ts";
 
 const logger = createLogger("poke");
 
@@ -19,8 +20,11 @@ async function main(): Promise<void> {
 
   const runtime = await PiRuntime.create(config, logger);
 
+  // Shared between the file tools (which stage files to upload) and the bot
+  // (which drains and uploads them after each turn).
+  const outbox = new ReplyOutbox();
   const registry = new IntegrationRegistry().registerAll(enabledIntegrations());
-  const tools = await registry.buildTools({ runtime, config, logger: logger.child("integrations") });
+  const tools = await registry.buildTools({ runtime, config, outbox, logger: logger.child("integrations") });
   const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
   logger.info("persona assembled", { botName: config.botName, integrations: registry.size, tools: tools.length });
 
@@ -29,7 +33,7 @@ async function main(): Promise<void> {
 
   const supportsImages = runtime.model.input.includes("image");
   logger.info("vision support", { supportsImages });
-  const bot = new DiscordBot(config, conversations, supportsImages, logger);
+  const bot = new DiscordBot(config, conversations, supportsImages, outbox, logger);
   await bot.start();
 
   let shuttingDown = false;

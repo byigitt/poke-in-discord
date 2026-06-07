@@ -4,7 +4,7 @@
  * Exercises voice, memory, a real tool call, and the no-fabrication guardrail.
  * Throwaway — run manually with `bun run scripts/smoke.ts`.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
@@ -13,14 +13,21 @@ import { PiRuntime } from "../src/pi/runtime.ts";
 import { buildPersona } from "../src/pi/persona.ts";
 import { IntegrationRegistry } from "../src/integrations/registry.ts";
 import { clockIntegration } from "../src/integrations/examples/clock.ts";
+import { filesystemIntegration } from "../src/integrations/filesystem/index.ts";
 import { ConversationSessions } from "../src/sessions/store.ts";
 import { extractAssistantText, toDiscordMessages } from "../src/discord/delivery.ts";
+import { ReplyOutbox, type PendingFile } from "../src/outbox.ts";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
 const tmp = mkdtempSync(join(tmpdir(), "poke-smoke-"));
+const filesRoot = join(tmp, "files");
+mkdirSync(filesRoot);
+const DEMO_FILE = "poke-smoke-demo.txt";
+writeFileSync(join(filesRoot, DEMO_FILE), "hello from the poke smoke test\n");
 process.env.DISCORD_TOKEN = "fake-token-for-smoke";
 process.env.POKE_SESSION_DIR = tmp;
+process.env.POKE_FILES_ROOT = filesRoot;
 process.env.POKE_THINKING = "off";
 process.env.POKE_BOT_NAME = "Poke";
 
@@ -28,9 +35,11 @@ const logger = createLogger("smoke");
 const config = loadConfig();
 const runtime = await PiRuntime.create(config, logger);
 
-// Enable the example tool integration to validate the extensibility surface end-to-end.
-const registry = new IntegrationRegistry().register(clockIntegration);
-const tools = await registry.buildTools({ runtime, config, logger: logger.child("integrations") });
+// Enable the example clock tool plus real filesystem access to validate the
+// extensibility surface — including file upload staging — end-to-end.
+const registry = new IntegrationRegistry().register(clockIntegration).register(filesystemIntegration);
+const outbox = new ReplyOutbox();
+const tools = await registry.buildTools({ runtime, config, outbox, logger: logger.child("integrations") });
 const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
 console.log(`\ntools: ${tools.map((t) => t.name).join(", ")}`);
 console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);
@@ -96,6 +105,21 @@ if (runtime.model.input.includes("image")) {
 } else {
   console.log("\n  (skipping vision check — resolved model has no image input)");
 }
+
+// 8) Filesystem: the bot finds a real local file and stages it for upload. We
+// drive the lane directly (instead of `ask`) so we can drain the outbox by the
+// same session key the send_file tool routed through.
+let staged: PendingFile[] = [];
+await conversations.run(KEY, async (session) => {
+  await session.prompt(`send me the file called ${DEMO_FILE}`);
+  console.log(`\n> send me the file called ${DEMO_FILE}`);
+  console.log(`  [reply] ${extractAssistantText(session.getLastAssistantMessage())}`);
+  staged = session.sessionFile ? outbox.drain(session.sessionFile) : [];
+});
+assert(
+  staged.some((f) => f.name === DEMO_FILE),
+  "found a local file and staged it for upload (send_file → outbox)",
+);
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");

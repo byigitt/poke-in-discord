@@ -7,9 +7,10 @@
 import { Client, Events, GatewayIntentBits, type Message, Partials } from "discord.js";
 import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
-import { type OutboundChannel, extractAssistantText, sendBubbles, toDiscordMessages } from "./delivery.ts";
+import { type OutboundChannel, extractAssistantText, sendBubbles, sendFiles, toDiscordMessages } from "./delivery.ts";
 import type { ConversationSessions } from "../sessions/store.ts";
 import { fetchImages, selectImages, type SelectedImage } from "./attachments.ts";
+import type { ReplyOutbox } from "../outbox.ts";
 
 /** Typed verbatim by the user to wipe a conversation's memory. */
 const RESET_PHRASES = ["reset", "/reset", "new chat", "start over", "forget it", "wipe"] as const;
@@ -27,6 +28,8 @@ export class DiscordBot {
     private readonly conversations: ConversationSessions,
     /** Whether the resolved model accepts image input; gates attachment forwarding. */
     private readonly supportsImages: boolean,
+    /** Files an integration staged this turn are uploaded after the reply. */
+    private readonly outbox: ReplyOutbox,
     logger: Logger,
   ) {
     this.logger = logger.child("discord");
@@ -108,6 +111,9 @@ export class DiscordBot {
 
     try {
       await this.conversations.run(key, async (session) => {
+        // Drop anything a previously-aborted turn left staged, so it can't leak
+        // into this reply. Files staged during this turn are sent below.
+        if (session.sessionFile) this.outbox.drain(session.sessionFile);
         await channel.sendTyping().catch(() => {});
         const refresh = setInterval(() => void channel.sendTyping().catch(() => {}), TYPING_REFRESH_MS);
         let reply: string;
@@ -135,11 +141,13 @@ export class DiscordBot {
         }
 
         const messages = toDiscordMessages(reply, this.config.maxReplyMessages);
-        if (messages.length === 0) {
+        const files = session.sessionFile ? this.outbox.drain(session.sessionFile) : [];
+        if (messages.length === 0 && files.length === 0) {
           this.logger.warn("empty reply from agent", { key });
           return;
         }
-        await sendBubbles(channel, messages, this.logger);
+        if (messages.length > 0) await sendBubbles(channel, messages, this.logger);
+        if (files.length > 0) await sendFiles(channel, files, this.logger);
       });
     } catch (error) {
       this.logger.error("turn failed", { key, error });

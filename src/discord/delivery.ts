@@ -6,12 +6,22 @@
  */
 import type { AssistantMessage, TextContent } from "@oh-my-pi/pi-ai";
 import type { Logger } from "../logger.ts";
+import type { PendingFile } from "../outbox.ts";
 
 const DISCORD_LIMIT = 2000;
 
-/** Minimal surface we need from a Discord channel — keeps this module decoupled. */
+/** A file Discord can upload: a path (string `BufferResolvable`) plus its display name. */
+export interface OutboundAttachment {
+  attachment: string;
+  name: string;
+}
+
+/**
+ * Minimal surface we need from a Discord channel — keeps this module decoupled.
+ * `send` mirrors discord.js: a plain string for text, or `{ files }` to upload.
+ */
 export interface OutboundChannel {
-  send(content: string): Promise<unknown>;
+  send(payload: string | { files: OutboundAttachment[] }): Promise<unknown>;
   sendTyping(): Promise<unknown>;
 }
 
@@ -139,6 +149,28 @@ export async function sendBubbles(
     } catch (error) {
       logger.error("failed to send message", { error, index: i });
       throw error;
+    }
+  }
+}
+
+/**
+ * Upload staged files after the text reply. One message per file: an oversized
+ * or vanished file fails on its own without sinking the rest, and each keeps its
+ * intended filename. A failure is reported in-character rather than thrown — the
+ * model already told the user it was sending, so silence would be worse.
+ */
+export async function sendFiles(
+  channel: OutboundChannel,
+  files: PendingFile[],
+  logger: Logger,
+): Promise<void> {
+  for (const file of files) {
+    await channel.sendTyping().catch(() => {});
+    try {
+      await channel.send({ files: [{ attachment: file.path, name: file.name }] });
+    } catch (error) {
+      logger.error("failed to send file", { error, name: file.name });
+      await channel.send(`couldn't get ${file.name} to upload — try asking again?`).catch(() => {});
     }
   }
 }

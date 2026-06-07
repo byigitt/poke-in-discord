@@ -16,6 +16,7 @@ import type { TSchema } from "@oh-my-pi/pi-ai";
 import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { PiRuntime } from "../pi/runtime.ts";
+import type { ReplyOutbox } from "../outbox.ts";
 
 /** A model-callable tool. Re-exported so integrations import one name from here. */
 export type { CustomTool } from "@oh-my-pi/pi-coding-agent";
@@ -28,6 +29,13 @@ export interface IntegrationContext {
   readonly config: Config;
   /** Scoped logger for this integration. */
   readonly logger: Logger;
+  /**
+   * Stage files to be uploaded alongside the current reply. A tool reaches the
+   * Discord channel only through here: it stages a file keyed by the running
+   * session (`ctx.sessionManager.getSessionFile()`), and the bot uploads it once
+   * the turn finishes.
+   */
+  readonly outbox: ReplyOutbox;
 }
 
 export interface Integration {

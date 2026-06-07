@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import { extractAssistantText, toDiscordMessages } from "./delivery.ts";
+import type { Logger } from "../logger.ts";
+import { type OutboundChannel, extractAssistantText, sendFiles, toDiscordMessages } from "./delivery.ts";
+
+const silent: Logger = { debug() {}, info() {}, warn() {}, error() {}, child: () => silent };
 
 const LIMIT = 2000;
 
@@ -70,5 +73,44 @@ describe("extractAssistantText", () => {
   test("trims surrounding whitespace", () => {
     const message = msg([{ type: "text", text: "  hi  " }] as AssistantMessage["content"]);
     expect(extractAssistantText(message)).toBe("hi");
+  });
+});
+
+describe("sendFiles", () => {
+  test("uploads each staged file as its own files payload", async () => {
+    const sent: unknown[] = [];
+    const channel: OutboundChannel = {
+      send: async (payload) => void sent.push(payload),
+      sendTyping: async () => undefined,
+    };
+    await sendFiles(
+      channel,
+      [
+        { path: "/tmp/a.pdf", name: "a.pdf" },
+        { path: "/tmp/b.txt", name: "b.txt" },
+      ],
+      silent,
+    );
+    expect(sent).toEqual([
+      { files: [{ attachment: "/tmp/a.pdf", name: "a.pdf" }] },
+      { files: [{ attachment: "/tmp/b.txt", name: "b.txt" }] },
+    ]);
+  });
+
+  test("reports a failed upload in-character instead of throwing", async () => {
+    const notes: string[] = [];
+    const channel: OutboundChannel = {
+      send: async (payload) => {
+        if (typeof payload === "string") {
+          notes.push(payload);
+          return undefined;
+        }
+        throw new Error("file too large");
+      },
+      sendTyping: async () => undefined,
+    };
+    await sendFiles(channel, [{ path: "/tmp/big.zip", name: "big.zip" }], silent);
+    expect(notes.length).toBe(1);
+    expect(notes[0]).toContain("big.zip");
   });
 });
