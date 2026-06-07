@@ -38,7 +38,7 @@ describe("loadMcpBridge", () => {
     bridge = await loadMcpBridge(dir, noAuth, silentLogger);
     expect(bridge).not.toBeNull();
     expect(bridge!.servers).toContain("echo");
-    expect(bridge!.capability).toContain("echo");
+    expect(bridge!.capabilities.join(" ")).toContain("echo");
     // The fixture exposes one tool, "echo" (pi may namespace it, so match loosely).
     expect(bridge!.tools.some((t) => t.name.includes("echo"))).toBe(true);
   }, 20_000);

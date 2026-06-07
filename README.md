@@ -8,10 +8,12 @@ authentication (no API keys here) and pi's agent/conversation system as the brai
 It can reach your **files** (find something on the machine it runs on and send it
 to you on Discord), **search the web**, and **remind you** later — nudging you in
 its own voice when the time comes — all through pi with no extra keys. It also
-connects to your **accounts**: Google Calendar and Gmail out of the box, plus
-anything with an MCP server (Notion, Linear, GitHub, …) — the same apps Poke
-integrates with. Each app loads only when it's configured, and every user links
-their own account right from chat with `connect`.
+connects to your **accounts**: Google Calendar and Gmail (users link their own
+with `connect`), plus the popular apps built right in over MCP — **GitHub,
+Notion, Linear, Stripe, Canva, Hugging Face** — the same kinds of apps Poke
+integrates with. Each app loads only when its credential is configured, so the
+bot never offers something it can't actually do — and anything else with an MCP
+server can still be dropped in.
 
 And if you explicitly turn it on, it can **run shell commands** on that machine —
 the OpenClaw-style "actually do things on my computer" move (off by default).
@@ -117,11 +119,30 @@ enable the Calendar and Gmail APIs, add `<POKE_OAUTH_REDIRECT_BASE>/oauth/callba
 as an authorized redirect URI, and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
 in `.env`. Then, in chat: `connect google-calendar` or `connect gmail`.
 
-**Everything else (the long tail).** MCP. Drop a `.mcp.json` next to the bot to
-opt in (even `{}` works); pi then loads servers from it **and** your global MCP
-config — the same `~/.claude.json` / marketplace servers your other tools already
-use (Notion, Linear, GitHub, context7, …) come along for free. No `.mcp.json`, no
-MCP. Verify yours with `bun run scripts/mcp-check.ts`.
+**Built-in apps (MCP, in the box).** The popular apps are wired in already — no
+`.mcp.json` needed. Each connects only when its operator-level credential is set
+in `.env`, and then its tools are live for everyone the bot talks to:
+
+| App | Credential | How to get it |
+| --- | --- | --- |
+| GitHub | `GITHUB_MCP_TOKEN` | A Personal Access Token (github.com → Developer settings). |
+| Notion | `NOTION_MCP_TOKEN` | An internal integration token (`ntn_…`); share the pages with it. Needs `npx`/Node on the host. |
+| Linear | `LINEAR_MCP_TOKEN` | A personal API key (Linear → Settings → API keys). |
+| Stripe | `STRIPE_MCP_TOKEN` | A restricted API key (`rk_…`), scoped to what the bot may touch. |
+| Canva | `CANVA_MCP_TOKEN` | An OAuth access token — short-lived (~4h), so only useful while fresh (Canva's MCP has no long-lived keys). |
+| Hugging Face | `HUGGINGFACE_MCP_TOKEN` | A user access token (`hf_…`). |
+
+These are *operator* credentials (one shared account), unlike Google's per-user
+`connect` — so only point the bot at accounts everyone in the chat may reach. The
+names are deliberately bot-scoped (`*_MCP_TOKEN`), not the providers' usual env
+vars, so a stray `GITHUB_TOKEN` or `STRIPE_SECRET_KEY` in your shell never quietly
+switches an app on.
+
+**Everything else (the long tail).** Anything not built in can still come in via
+MCP: drop a `.mcp.json` next to the bot (even `{}` works); pi then loads servers
+from it **and** your global MCP config — the same `~/.claude.json` / marketplace
+servers your other tools already use (Sentry, context7, …) come along for free.
+No `.mcp.json`, no extra MCP. Verify yours with `bun run scripts/mcp-check.ts`.
 
 Connect links bind to the requesting user, so the bot always sends them by DM.
 
@@ -151,6 +172,12 @@ All via `.env` (see `.env.example`):
 | `POKE_CONNECTIONS_FILE` | `<session dir>/connections.db` | SQLite file of per-user linked-account tokens. |
 | `POKE_REMINDERS_FILE` | `<session dir>/reminders.db` | SQLite file of scheduled reminders. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Google OAuth client; set both to enable Google Calendar + Gmail. |
+| `GITHUB_MCP_TOKEN` | — | GitHub PAT; enables the built-in GitHub app. |
+| `NOTION_MCP_TOKEN` | — | Notion integration token; enables the built-in Notion app (needs `npx`/Node). |
+| `LINEAR_MCP_TOKEN` | — | Linear API key; enables the built-in Linear app. |
+| `STRIPE_MCP_TOKEN` | — | Stripe restricted key (`rk_…`); enables the built-in Stripe app. |
+| `CANVA_MCP_TOKEN` | — | Canva OAuth access token (short-lived); enables the built-in Canva app. |
+| `HUGGINGFACE_MCP_TOKEN` | — | Hugging Face access token; enables the built-in Hugging Face app. |
 | `POKE_AGENT_DIR` | `~/.omp/agent` | Override pi's credential/model dir. |
 
 ## Extending it (the whole point)
@@ -211,7 +238,11 @@ key, or a `connection` for OAuth apps (Google Calendar/Gmail show the pattern). 
 `connection` both gates the integration on its client env and registers it for
 `connect <provider>`; tools then call `currentToken(ctx, toolCtx, provider)` to
 get the current user's token. No connect-flow plumbing leaks into the integration.
-For apps you don't want to hand-write, a `.mcp.json` brings their tools in via MCP.
+For a popular app you'd rather ship in the box, add a built-in MCP entry instead
+of hand-writing tools: append it to `BUILTIN_MCP_SERVERS` in `src/mcp/catalog.ts`
+(name, capability line, its token env var, and the HTTP/stdio transport) and it
+loads whenever that credential is set. Anything more bespoke can still come in
+through a `.mcp.json`.
 
 **Conventions.** Tool results use the shared `toolText` / `toolError` helpers — no
 per-integration reply boilerplate. Each module has a colocated `*.test.ts` named
@@ -235,7 +266,9 @@ src/
     server.ts               OAuth callback HTTP server
     commands.ts             connect / disconnect / accounts parsing
   mcp/
-    bridge.ts               opt-in MCP: discover servers (.mcp.json + global config) → tools
+    catalog.ts              built-in MCP apps (GitHub, Notion, Linear, …) + env-gated selection
+    builtin.ts              connect the configured built-in apps → tools + capabilities
+    bridge.ts               long-tail MCP: discover servers (.mcp.json + global config) → tools
   reminders/
     store.ts                scheduled reminders (SQLite, survives restarts)
     scheduler.ts            polls + fires due reminders (offline catch-up, fire-once)

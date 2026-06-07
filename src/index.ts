@@ -20,7 +20,9 @@ import { ConversationSessions } from "./sessions/store.ts";
 import { DiscordBot } from "./discord/bot.ts";
 import { ReplyOutbox } from "./outbox.ts";
 import { ActorRegistry } from "./actor.ts";
-import { loadMcpBridge } from "./mcp/bridge.ts";
+import { loadMcpBridge, type McpBridge } from "./mcp/bridge.ts";
+import { loadBuiltinMcp } from "./mcp/builtin.ts";
+import { BUILTIN_MCP_SERVERS } from "./mcp/catalog.ts";
 
 const logger = createLogger("poke");
 
@@ -62,17 +64,22 @@ async function main(): Promise<void> {
     logger: logger.child("integrations"),
   });
 
-  // The long tail: connect MCP servers from your standard MCP config (.mcp.json,
-  // Claude Code, etc.). MCP tools are registered per-session via refreshMCPTools
-  // (NOT as customTools), which is what actually makes the model able to call them.
-  const mcp = await loadMcpBridge(process.cwd(), runtime.authStorage, logger.child("mcp"));
-  const mcpTools = mcp?.tools ?? [];
-  const capabilities = [...registry.capabilities(), ...(mcp?.capability ? [mcp.capability] : [])];
+  // MCP, two ways. First the built-ins: the popular apps (GitHub, Notion, Linear,
+  // …) shipped in the box, each connecting only when its credential is in the env.
+  // Then the long tail: any servers from your standard MCP config (.mcp.json,
+  // Claude Code, etc.). Both yield tools registered per-session via refreshMCPTools
+  // (NOT customTools), which is what actually lets the model call them.
+  const builtinMcp = await loadBuiltinMcp(BUILTIN_MCP_SERVERS, process.env, process.cwd(), logger.child("mcp"));
+  const fileMcp = await loadMcpBridge(process.cwd(), runtime.authStorage, logger.child("mcp"));
+  const mcpBridges = [builtinMcp, fileMcp].filter((bridge): bridge is McpBridge => bridge !== null);
+  const mcpTools = mcpBridges.flatMap((bridge) => bridge.tools);
+  const capabilities = [...registry.capabilities(), ...mcpBridges.flatMap((bridge) => bridge.capabilities)];
   const persona = buildPersona({ botName: config.botName, capabilities });
   logger.info("persona assembled", {
     botName: config.botName,
     integrations: registry.size,
     tools: integrationTools.length,
+    mcpServers: mcpBridges.flatMap((bridge) => bridge.servers),
     mcpTools: mcpTools.length,
   });
 
@@ -105,7 +112,9 @@ async function main(): Promise<void> {
     await bot.stop().catch((error) => logger.error("bot stop failed", { error }));
     oauthServer?.stop();
     await conversations.dispose().catch((error) => logger.error("session flush failed", { error }));
-    await mcp?.dispose().catch((error) => logger.error("mcp disconnect failed", { error }));
+    await Promise.all(
+      mcpBridges.map((bridge) => bridge.dispose().catch((error) => logger.error("mcp disconnect failed", { error }))),
+    );
     tokenStore.close();
     reminderStore.close();
     process.exit(0);

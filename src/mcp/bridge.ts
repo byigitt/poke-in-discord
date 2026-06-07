@@ -1,7 +1,9 @@
 /**
- * MCP bridge — the long tail. Poke's own answer for "everything else" (Notion,
- * Linear, GitHub, Sentry, …) is MCP, and pi speaks MCP natively, so instead of
- * hand-writing dozens of integrations we ride the standard MCP config.
+ * MCP bridge — the long tail. The popular apps ship built in (see `catalog.ts` /
+ * `builtin.ts`); this covers everything else. Poke's own answer for "everything
+ * else" (Sentry, context7, your own servers, …) is MCP, and pi speaks MCP
+ * natively, so instead of hand-writing dozens of integrations we ride the
+ * standard MCP config.
  *
  * Opt-in: a `.mcp.json` next to the bot turns MCP on (no file ⇒ no MCP). Once on,
  * pi discovers servers from the usual places — that `.mcp.json` PLUS your global
@@ -21,8 +23,11 @@ import type { Logger } from "../logger.ts";
 export interface McpBridge {
   /** Tools from every connected server, ready to merge into the agent's tool set. */
   readonly tools: CustomTool[];
-  /** One persona line naming the connected servers, or undefined if none. */
-  readonly capability?: string;
+  /**
+   * Persona lines for what's connected — one per built-in app (curated text), or
+   * a single line naming the long-tail servers. Empty when nothing is advertised.
+   */
+  readonly capabilities: readonly string[];
   /** Names of the servers that connected. */
   readonly servers: string[];
   /** Disconnect every server (kills stdio child processes). Call on shutdown. */
@@ -65,7 +70,7 @@ export async function loadMcpBridge(
   logger.info("mcp ready", { servers, tools: tools.length });
   return {
     tools,
-    capability: `Use tools from connected MCP servers: ${servers.join(", ")}`,
+    capabilities: [`Use tools from connected MCP servers: ${servers.join(", ")}`],
     servers,
     dispose: () => result.manager.disconnectAll(),
   };
