@@ -18,6 +18,7 @@ import { ConversationSessions } from "./sessions/store.ts";
 import { DiscordBot } from "./discord/bot.ts";
 import { ReplyOutbox } from "./outbox.ts";
 import { ActorRegistry } from "./actor.ts";
+import { loadMcpBridge } from "./mcp/bridge.ts";
 
 const logger = createLogger("poke");
 
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   }
 
   const registry = new IntegrationRegistry().registerAll(enabled);
-  const tools = await registry.buildTools({
+  const integrationTools = await registry.buildTools({
     runtime,
     config,
     outbox,
@@ -56,7 +57,13 @@ async function main(): Promise<void> {
     actor,
     logger: logger.child("integrations"),
   });
-  const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
+
+  // The long tail: connect any MCP servers declared in .mcp.json and fold their
+  // tools in alongside the integration tools (shared across conversations).
+  const mcp = await loadMcpBridge(process.cwd(), runtime.authStorage, logger.child("mcp"));
+  const tools = mcp ? [...integrationTools, ...mcp.tools] : integrationTools;
+  const capabilities = [...registry.capabilities(), ...(mcp?.capability ? [mcp.capability] : [])];
+  const persona = buildPersona({ botName: config.botName, capabilities });
   logger.info("persona assembled", { botName: config.botName, integrations: registry.size, tools: tools.length });
 
   const conversations = new ConversationSessions({ runtime, config, persona, tools, logger });
@@ -81,6 +88,7 @@ async function main(): Promise<void> {
     await bot.stop().catch((error) => logger.error("bot stop failed", { error }));
     oauthServer?.stop();
     await conversations.dispose().catch((error) => logger.error("session flush failed", { error }));
+    await mcp?.dispose().catch((error) => logger.error("mcp disconnect failed", { error }));
     tokenStore.close();
     process.exit(0);
   };
