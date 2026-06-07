@@ -65,9 +65,9 @@ bun start                 # or: bun dev  (watch mode)
   `@mention`, and the bot actually looks at it. Needs a vision-capable model
   (the default Claude models are).
 - **Ask for a file** — "find my resume and send it", "what's in notes.txt?",
-  "list my Downloads". The bot searches the machine it runs on, reads text files,
-  and uploads files straight into the chat. Scope it with `POKE_FILES_ROOT` and
-  see the security note below.
+  "list my Downloads", "save these notes to ideas.md". The bot searches the
+  machine it runs on, reads text files, writes/appends files, and uploads files
+  straight into the chat. Scope it with `POKE_FILES_ROOT` and see the note below.
 - **Ask it to look something up** — "what's the weather in Istanbul?", "search
   the news on X", "who won last night's game?". It searches the web through pi's
   own providers (whatever your pi login unlocks — Anthropic, OpenAI, …), so no
@@ -92,8 +92,8 @@ bun start                 # or: bun dev  (watch mode)
 The file tools are real access to the machine the bot runs on. Everything is
 confined to `POKE_FILES_ROOT` (default: your home folder) — paths that try to
 escape it, including through symlinks, are refused — and reads/uploads are capped
-by `POKE_FILES_MAX_MB`. But within that root the bot can read and send **any**
-file to whoever it's chatting with. So keep it in DMs or a private server, point
+by `POKE_FILES_MAX_MB`. But within that root the bot can read, **write**, and send
+any file to whoever it's chatting with. So keep it in DMs or a private server, point
 `POKE_FILES_ROOT` at just the folder you want it to reach, and remember that
 anyone it talks to can ask for those files.
 
@@ -238,7 +238,7 @@ src/
     types.ts                Integration / IntegrationContext / defineTool
     registry.ts             integrations → persona capabilities + deduped tools
     index.ts                catalog + env-gated selection (selectConfigured)
-    filesystem/             browse / search / read / send files from the host
+    filesystem/             browse / search / read / write / send files on the host
       index.ts              the integration
       filesystem.test.ts    its unit tests
     web-search/             search the web via pi's own providers (no extra key)

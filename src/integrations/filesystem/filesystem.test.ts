@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CustomToolContext } from "@oh-my-pi/pi-coding-agent";
@@ -159,5 +159,39 @@ describe("send_file", () => {
     const res = await run("send_file", { path: "notes.txt" }, undefined);
     expect(res.isError).toBe(true);
     expect(textOf(res).toLowerCase()).toContain("can't attach");
+  });
+});
+
+describe("write_file & append_file", () => {
+  test("write_file creates a file and its parent folder", async () => {
+    const res = await tools.get("write_file")!.execute("c", { path: "out/new.txt", content: "fresh" }, undefined, session());
+    expect(res.isError).toBeFalsy();
+    expect(readFileSync(join(root, "out", "new.txt"), "utf8")).toBe("fresh");
+  });
+
+  test("write_file overwrites an existing file", async () => {
+    await tools.get("write_file")!.execute("c", { path: "over.txt", content: "one" }, undefined, session());
+    await tools.get("write_file")!.execute("c", { path: "over.txt", content: "two" }, undefined, session());
+    expect(readFileSync(join(root, "over.txt"), "utf8")).toBe("two");
+  });
+
+  test("append_file appends to the end", async () => {
+    await tools.get("write_file")!.execute("c", { path: "log.txt", content: "a" }, undefined, session());
+    await tools.get("append_file")!.execute("c", { path: "log.txt", content: "b" }, undefined, session());
+    expect(readFileSync(join(root, "log.txt"), "utf8")).toBe("ab");
+  });
+
+  test("write_file refuses a path that escapes the root", async () => {
+    const res = await tools.get("write_file")!.execute("c", { path: "../escape.txt", content: "x" }, undefined, session());
+    expect(res.isError).toBe(true);
+    expect(existsSync(join(parent, "escape.txt"))).toBe(false);
+  });
+
+  test("write_file rejects content over the cap and writes nothing", async () => {
+    const res = await tools
+      .get("write_file")!
+      .execute("c", { path: "huge.txt", content: "x".repeat(UPLOAD_CAP + 1) }, undefined, session());
+    expect(res.isError).toBe(true);
+    expect(existsSync(join(root, "huge.txt"))).toBe(false);
   });
 });

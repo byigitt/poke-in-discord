@@ -12,9 +12,9 @@
  * (`POKE_FILES_MAX_MB`). This is real access to real files: scope the root and
  * keep the bot private if that matters to you.
  */
-import { open, readdir, realpath, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import type { Dirent, Stats } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod/v4";
 import type { TextContent } from "@oh-my-pi/pi-ai";
@@ -115,7 +115,7 @@ async function readTextCapped(
 
 export const filesystemIntegration: Integration = {
   name: "filesystem",
-  capability: "Browse, search, read, and send files from the computer you run on",
+  capability: "Browse, search, read, write, and send files on the computer you run on",
   async tools(ctx) {
     // Realpath the root once so symlink checks compare like-for-like; if it's
     // missing, fall back to the lexical path and let per-call stats explain.
@@ -338,6 +338,61 @@ export const filesystemIntegration: Integration = {
           ctx.outbox.stage(sessionKey, { path: file, name: basename(file) });
           ctx.logger.info("file staged for upload", { name: basename(file), size: info.size });
           return ok(`Attaching ${basename(file)} (${formatBytes(info.size)}) to your reply.`);
+        },
+      }),
+
+      defineTool({
+        name: "write_file",
+        label: "Write a file",
+        description:
+          "Create or overwrite a text file with the given content (parent folders are created as needed). Confined to the accessible root.",
+        parameters: z.object({
+          path: z.string().min(1).describe("File to write. Absolute, relative to the root, or ~-prefixed."),
+          content: z.string().describe("Full text content to write; overwrites any existing file."),
+        }),
+        async execute(_id, params) {
+          const file = await safePath(params.path);
+          if (file === null) return denied(params.path);
+          const bytes = Buffer.byteLength(params.content, "utf8");
+          if (bytes > uploadCap) {
+            return fail(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
+          }
+          try {
+            if ((await stat(file).catch(() => null))?.isDirectory()) return fail(`${basename(file)} is a folder.`);
+            await mkdir(dirname(file), { recursive: true });
+            await writeFile(file, params.content, "utf8");
+          } catch (error) {
+            return fail(`couldn't write ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          ctx.logger.info("wrote file", { name: basename(file), bytes });
+          return ok(`wrote ${formatBytes(bytes)} to ${basename(file)}.`);
+        },
+      }),
+
+      defineTool({
+        name: "append_file",
+        label: "Append to a file",
+        description: "Append text to the end of a file, creating it (and parent folders) if needed. Confined to the accessible root.",
+        parameters: z.object({
+          path: z.string().min(1).describe("File to append to. Absolute, relative to the root, or ~-prefixed."),
+          content: z.string().describe("Text to append."),
+        }),
+        async execute(_id, params) {
+          const file = await safePath(params.path);
+          if (file === null) return denied(params.path);
+          const bytes = Buffer.byteLength(params.content, "utf8");
+          if (bytes > uploadCap) {
+            return fail(`that's ${formatBytes(bytes)} — over the ${formatBytes(uploadCap)} write limit.`);
+          }
+          try {
+            if ((await stat(file).catch(() => null))?.isDirectory()) return fail(`${basename(file)} is a folder.`);
+            await mkdir(dirname(file), { recursive: true });
+            await appendFile(file, params.content, "utf8");
+          } catch (error) {
+            return fail(`couldn't append to ${params.path}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          ctx.logger.info("appended to file", { name: basename(file), bytes });
+          return ok(`appended ${formatBytes(bytes)} to ${basename(file)}.`);
         },
       }),
     ];

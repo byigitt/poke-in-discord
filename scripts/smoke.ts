@@ -4,7 +4,7 @@
  * Exercises voice, memory, a real tool call, and the no-fabrication guardrail.
  * Throwaway — run manually with `bun run scripts/smoke.ts`.
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
@@ -221,6 +221,16 @@ await conversations.run("smoke-shell", async (session) => {
 });
 console.log(`\n> run: echo poke-shell-works\n  [reply] ${shellReply}`);
 assert(/poke-shell-works/.test(shellReply), "ran a shell command and reported its output (run_command)");
+
+// 15) File write: the bot creates a file on disk with the content it's asked for.
+let writeReply = "";
+await conversations.run("smoke-write", async (session) => {
+  await session.prompt("create a file called poke-write-test.txt with exactly this text: buy milk");
+  writeReply = extractAssistantText(session.getLastAssistantMessage());
+});
+console.log(`\n> create a file poke-write-test.txt ("buy milk")\n  [reply] ${writeReply}`);
+const written = readFileSync(join(filesRoot, "poke-write-test.txt"), "utf8");
+assert(/buy milk/i.test(written), "wrote a file to disk (write_file)");
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");
