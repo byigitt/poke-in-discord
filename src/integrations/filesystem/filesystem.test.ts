@@ -10,6 +10,7 @@ import type { PiRuntime } from "../../pi/runtime.ts";
 import { ReplyOutbox } from "../../outbox.ts";
 import type { ActorRegistry } from "../../actor.ts";
 import type { ConnectionManager } from "../../connections/manager.ts";
+import type { ReminderStore } from "../../reminders/store.ts";
 import type { CustomTool, IntegrationContext } from "../types.ts";
 import { filesystemIntegration } from "./index.ts";
 
@@ -47,6 +48,7 @@ beforeAll(async () => {
     // The file tools use neither; satisfy the context shape without a real DB.
     connections: undefined as unknown as ConnectionManager,
     actor: undefined as unknown as ActorRegistry,
+    reminders: undefined as unknown as ReminderStore,
   };
   tools = new Map((await filesystemIntegration.tools(ctx)).map((t) => [t.name, t]));
 });

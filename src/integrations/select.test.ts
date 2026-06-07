@@ -45,7 +45,7 @@ describe("selectConfigured", () => {
 
   test("real catalog: filesystem + web-search always load; Google apps gate on Google creds", () => {
     const bare = selectConfigured(ALL_INTEGRATIONS, {});
-    expect(bare.enabled.map((i) => i.name)).toEqual(["filesystem", "web-search"]);
+    expect(bare.enabled.map((i) => i.name)).toEqual(["filesystem", "web-search", "reminders"]);
     const skippedNames = bare.skipped.map((s) => s.name);
     expect(skippedNames).toContain("google-calendar");
     expect(skippedNames).toContain("gmail");

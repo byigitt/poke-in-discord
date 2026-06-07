@@ -74,7 +74,9 @@ export class ConversationSessionFactory {
       modelRegistry: this.deps.runtime.modelRegistry,
       model: this.deps.runtime.model,
       thinkingLevel: this.deps.runtime.thinkingLevel,
-      systemPrompt: () => [this.deps.persona],
+      // Re-evaluated per prompt, so the model always knows "now" — needed for
+      // reminders ("in 10 min") and calendar/email time math.
+      systemPrompt: () => [this.deps.persona, `The current date and time is ${new Date().toString()}.`],
       customTools: this.deps.tools,
       sessionManager,
       settings: this.settings,

@@ -13,11 +13,13 @@ import { filesystemIntegration } from "./filesystem/index.ts";
 import { webSearchIntegration } from "./web-search/index.ts";
 import { googleCalendarIntegration } from "./google-calendar/index.ts";
 import { gmailIntegration } from "./gmail/index.ts";
+import { remindersIntegration } from "./reminders/index.ts";
 
 /** Every integration this build knows how to run — configured or not. */
 export const ALL_INTEGRATIONS: readonly Integration[] = [
   filesystemIntegration,
   webSearchIntegration,
+  remindersIntegration,
   googleCalendarIntegration,
   gmailIntegration,
 ];

@@ -17,9 +17,10 @@ import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { PiRuntime } from "../pi/runtime.ts";
 import type { ReplyOutbox } from "../outbox.ts";
-import type { ActorRegistry } from "../actor.ts";
+import type { ActorRegistry, TurnActor } from "../actor.ts";
 import type { ConnectionManager } from "../connections/manager.ts";
 import type { ConnectionSpec } from "../connections/oauth.ts";
+import type { ReminderStore } from "../reminders/store.ts";
 
 /** A model-callable tool. Re-exported so integrations import one name from here. */
 export type { CustomTool } from "@oh-my-pi/pi-coding-agent";
@@ -43,6 +44,8 @@ export interface IntegrationContext {
   readonly connections: ConnectionManager;
   /** Who is talking this turn, so a tool can find *that* user's connected accounts. */
   readonly actor: ActorRegistry;
+  /** Persistent reminders. The reminders integration adds/lists/cancels here; the bot's scheduler fires them. */
+  readonly reminders: ReminderStore;
 }
 
 export interface Integration {
@@ -90,7 +93,18 @@ export function currentToken(
 ): Promise<string | null> {
   const sessionKey = toolCtx.sessionManager.getSessionFile();
   if (!sessionKey) return Promise.resolve(null);
-  const userId = ctx.actor.current(sessionKey);
-  if (!userId) return Promise.resolve(null);
-  return ctx.connections.accessToken(userId, provider);
+  const actor = ctx.actor.current(sessionKey);
+  if (!actor) return Promise.resolve(null);
+  return ctx.connections.accessToken(actor.userId, provider);
+}
+
+/**
+ * The user + channel behind the current turn, or null between turns. Tools that
+ * act per-user or per-channel (reminders, connections) resolve identity here
+ * instead of reaching into the session plumbing themselves.
+ */
+export function currentActor(ctx: IntegrationContext, toolCtx: CustomToolContext): TurnActor | null {
+  const sessionKey = toolCtx.sessionManager.getSessionFile();
+  if (!sessionKey) return null;
+  return ctx.actor.current(sessionKey) ?? null;
 }

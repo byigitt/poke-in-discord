@@ -47,6 +47,8 @@ export interface Config {
   readonly oauthRedirectBase: string;
   /** SQLite file holding per-user connected-account tokens. */
   readonly connectionsFile: string;
+  /** SQLite file holding scheduled reminders. */
+  readonly remindersFile: string;
 }
 
 function required(name: string): string {
@@ -102,5 +104,6 @@ export function loadConfig(): Config {
     oauthPort,
     oauthRedirectBase: optional("POKE_OAUTH_REDIRECT_BASE", `http://localhost:${oauthPort}`),
     connectionsFile: optional("POKE_CONNECTIONS_FILE", join(sessionDir, "connections.db")),
+    remindersFile: optional("POKE_REMINDERS_FILE", join(sessionDir, "reminders.db")),
   };
 }

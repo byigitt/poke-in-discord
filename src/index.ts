@@ -14,6 +14,7 @@ import { resolveProvider } from "./connections/oauth.ts";
 import { TokenStore } from "./connections/store.ts";
 import { ConnectionManager } from "./connections/manager.ts";
 import { OAuthCallbackServer } from "./connections/server.ts";
+import { ReminderStore } from "./reminders/store.ts";
 import { ConversationSessions } from "./sessions/store.ts";
 import { DiscordBot } from "./discord/bot.ts";
 import { ReplyOutbox } from "./outbox.ts";
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   const connections = new ConnectionManager(tokenStore, redirectUri, logger.child("connections"));
   const actor = new ActorRegistry();
   const outbox = new ReplyOutbox();
+  const reminderStore = new ReminderStore(config.remindersFile);
 
   // Env-gate the catalog: only configured apps load. Register an OAuth provider
   // for each connectable app that is configured so `connect <app>` works.
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
     outbox,
     connections,
     actor,
+    reminders: reminderStore,
     logger: logger.child("integrations"),
   });
 
@@ -77,7 +80,7 @@ async function main(): Promise<void> {
 
   const supportsImages = runtime.model.input.includes("image");
   logger.info("vision support", { supportsImages });
-  const bot = new DiscordBot(config, conversations, supportsImages, outbox, connections, actor, logger);
+  const bot = new DiscordBot(config, conversations, supportsImages, outbox, connections, actor, reminderStore, logger);
   await bot.start();
 
   let shuttingDown = false;
@@ -90,6 +93,7 @@ async function main(): Promise<void> {
     await conversations.dispose().catch((error) => logger.error("session flush failed", { error }));
     await mcp?.dispose().catch((error) => logger.error("mcp disconnect failed", { error }));
     tokenStore.close();
+    reminderStore.close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

@@ -12,6 +12,7 @@ import { ConnectionManager } from "../../connections/manager.ts";
 import { resolveProvider } from "../../connections/oauth.ts";
 import { TokenStore } from "../../connections/store.ts";
 import { ReplyOutbox } from "../../outbox.ts";
+import type { ReminderStore } from "../../reminders/store.ts";
 import type { CustomTool, IntegrationContext } from "../types.ts";
 import { googleCalendarIntegration } from "./index.ts";
 
@@ -31,7 +32,7 @@ beforeEach(async () => {
   store = new TokenStore(join(dir, "connections.db"));
   const connections = new ConnectionManager(store, "http://localhost/oauth/callback", silent);
   const actor = new ActorRegistry();
-  actor.enter(SESSION, "u1"); // someone is talking, but hasn't linked their calendar
+  actor.enter(SESSION, { userId: "u1", channelId: "c1" }); // talking, but hasn't linked their calendar
   const ctx: IntegrationContext = {
     runtime: undefined as unknown as PiRuntime,
     config: {} as unknown as Config,
@@ -39,6 +40,7 @@ beforeEach(async () => {
     outbox: new ReplyOutbox(),
     connections,
     actor,
+    reminders: undefined as unknown as ReminderStore,
   };
   tools = new Map((await googleCalendarIntegration.tools(ctx)).map((t) => [t.name, t]));
 });

@@ -14,6 +14,8 @@ import type { ReplyOutbox } from "../outbox.ts";
 import type { ActorRegistry } from "../actor.ts";
 import type { ConnectionManager } from "../connections/manager.ts";
 import { matchProvider, parseConnectCommand } from "../connections/commands.ts";
+import type { Reminder, ReminderStore } from "../reminders/store.ts";
+import { ReminderScheduler } from "../reminders/scheduler.ts";
 
 /** Typed verbatim by the user to wipe a conversation's memory. */
 const RESET_PHRASES = ["reset", "/reset", "new chat", "start over", "forget it", "wipe"] as const;
@@ -25,6 +27,7 @@ export class DiscordBot {
   private readonly client: Client;
   private readonly logger: Logger;
   private botId: string | null = null;
+  private readonly scheduler: ReminderScheduler;
 
   constructor(
     private readonly config: Config,
@@ -37,9 +40,11 @@ export class DiscordBot {
     private readonly connections: ConnectionManager,
     /** Records who is talking each turn so tools resolve that user's accounts. */
     private readonly actor: ActorRegistry,
+    reminders: ReminderStore,
     logger: Logger,
   ) {
     this.logger = logger.child("discord");
+    this.scheduler = new ReminderScheduler(reminders, (reminder) => this.deliverReminder(reminder), this.logger.child("reminders"));
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -54,6 +59,7 @@ export class DiscordBot {
     this.client.once(Events.ClientReady, (ready) => {
       this.botId = ready.user.id;
       this.logger.info("connected", { tag: ready.user.tag, id: ready.user.id });
+      this.scheduler.start();
     });
     this.client.on(Events.MessageCreate, (message) => {
       void this.onMessage(message);
@@ -66,6 +72,7 @@ export class DiscordBot {
   }
 
   async stop(): Promise<void> {
+    this.scheduler.stop();
     await this.client.destroy();
   }
 
@@ -128,7 +135,7 @@ export class DiscordBot {
         // into this reply. Files staged during this turn are sent below.
         if (session.sessionFile) {
           this.outbox.drain(session.sessionFile);
-          this.actor.enter(session.sessionFile, userId);
+          this.actor.enter(session.sessionFile, { userId, channelId: key });
         }
         await channel.sendTyping().catch(() => {});
         const refresh = setInterval(() => void channel.sendTyping().catch(() => {}), TYPING_REFRESH_MS);
@@ -261,5 +268,42 @@ export class DiscordBot {
         .send("I couldn't DM you — enable DMs from server members so I can send that privately.")
         .catch(() => {});
     }
+  }
+
+  /**
+   * Deliver a fired reminder: nudge the user in the bot's own voice, in the
+   * channel they set it in, and keep it in that conversation's memory. Runs on
+   * the channel's lane so it can't race a live message. Falls back to a plain
+   * line if the agent turn fails; gives up quietly if the channel is gone.
+   */
+  private async deliverReminder(reminder: Reminder): Promise<void> {
+    const channel = await this.client.channels.fetch(reminder.channelId).catch(() => null);
+    if (!channel?.isTextBased()) {
+      this.logger.warn("reminder channel unavailable; dropping", { id: reminder.id });
+      return;
+    }
+    const out = channel as unknown as OutboundChannel;
+    const fallback = `hey — reminder: ${reminder.text}`;
+    try {
+      await this.conversations.run(reminder.channelId, async (session) => {
+        if (session.sessionFile) {
+          this.actor.enter(session.sessionFile, { userId: reminder.userId, channelId: reminder.channelId });
+        }
+        try {
+          await session.prompt(
+            `[reminder due] Earlier the user asked to be reminded: "${reminder.text}". It's time — nudge them now, briefly, in your own voice. Don't mention reminders or any machinery.`,
+          );
+          const reply = extractAssistantText(session.getLastAssistantMessage());
+          const messages = toDiscordMessages(reply, this.config.maxReplyMessages);
+          await (messages.length > 0 ? sendBubbles(out, messages, this.logger) : out.send(fallback));
+        } finally {
+          if (session.sessionFile) this.actor.leave(session.sessionFile);
+        }
+      });
+    } catch (error) {
+      this.logger.error("reminder turn failed; sending plain nudge", { id: reminder.id, error });
+      await out.send(fallback).catch(() => {});
+    }
+    this.logger.info("reminder delivered", { id: reminder.id });
   }
 }

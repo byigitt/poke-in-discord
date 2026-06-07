@@ -23,6 +23,8 @@ import { TokenStore } from "../src/connections/store.ts";
 import { ConnectionManager } from "../src/connections/manager.ts";
 import { resolveProvider } from "../src/connections/oauth.ts";
 import { googleCalendarIntegration } from "../src/integrations/google-calendar/index.ts";
+import { remindersIntegration } from "../src/integrations/reminders/index.ts";
+import { ReminderStore } from "../src/reminders/store.ts";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 
 // Set env before loadConfig() is called (no module reads these at import time).
@@ -47,7 +49,8 @@ const runtime = await PiRuntime.create(config, logger);
 const registry = new IntegrationRegistry()
   .register(clockIntegration)
   .register(filesystemIntegration)
-  .register(webSearchIntegration);
+  .register(webSearchIntegration)
+  .register(remindersIntegration);
 const outbox = new ReplyOutbox();
 const actor = new ActorRegistry();
 const connections = new ConnectionManager(
@@ -55,7 +58,8 @@ const connections = new ConnectionManager(
   "http://localhost:8787/oauth/callback",
   logger.child("connections"),
 );
-const tools = await registry.buildTools({ runtime, config, outbox, connections, actor, logger: logger.child("integrations") });
+const reminderStore = new ReminderStore(join(tmp, "reminders.db"));
+const tools = await registry.buildTools({ runtime, config, outbox, connections, actor, reminders: reminderStore, logger: logger.child("integrations") });
 const persona = buildPersona({ botName: config.botName, capabilities: registry.capabilities() });
 console.log(`\ntools: ${tools.map((t) => t.name).join(", ")}`);
 console.log(`capabilities: ${JSON.stringify(registry.capabilities())}`);
@@ -162,6 +166,34 @@ assert(
   connectUrl.includes("accounts.google.com") && connectUrl.includes("calendar.events"),
   "connect google-calendar produces a real Google consent URL",
 );
+
+// 11) Reminders: the model schedules one via set_reminder, keyed to user + channel.
+// (We set the actor by hand here since we're not going through the bot.)
+let remindReply = "";
+await conversations.run("smoke-remind", async (session) => {
+  if (session.sessionFile) actor.enter(session.sessionFile, { userId: "smoke-user", channelId: "smoke-remind" });
+  try {
+    await session.prompt("remind me to stretch my legs in 10 minutes");
+    remindReply = extractAssistantText(session.getLastAssistantMessage());
+  } finally {
+    if (session.sessionFile) actor.leave(session.sessionFile);
+  }
+});
+console.log(`\n> remind me to stretch my legs in 10 minutes\n  [reply] ${remindReply}`);
+const scheduled = reminderStore.listForUser("smoke-user");
+assert(scheduled.length >= 1 && /stretch|legs/i.test(scheduled.at(-1)!.text), "scheduled a reminder via set_reminder");
+
+// 12) Reminder delivery: the agent turns a fired reminder into a natural nudge
+// (the same injection the bot's scheduler uses on its own channel lane).
+let nudge = "";
+await conversations.run("smoke-nudge", async (session) => {
+  await session.prompt(
+    `[reminder due] Earlier the user asked to be reminded: "stretch your legs". It's time — nudge them now, briefly, in your own voice. Don't mention reminders or any machinery.`,
+  );
+  nudge = extractAssistantText(session.getLastAssistantMessage());
+});
+console.log(`\n[reminder fires]\n  [reply] ${nudge}`);
+assert(nudge.trim().length > 0 && /stretch|leg/i.test(nudge), "delivers a fired reminder as a natural nudge");
 
 await conversations.dispose();
 console.log("\nALL SMOKE CHECKS PASSED");

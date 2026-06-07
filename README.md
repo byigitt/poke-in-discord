@@ -6,9 +6,10 @@ chatbot — and runs entirely on the **Oh My Pi** agent SDK: it uses pi's own
 authentication (no API keys here) and pi's agent/conversation system as the brain.
 
 It can reach your **files** (find something on the machine it runs on and send it
-to you on Discord) and **search the web**, both through pi with no extra keys. It
-also connects to your **accounts** — Google Calendar and Gmail out of the box,
-plus anything with an MCP server (Notion, Linear, GitHub, …) — the same apps Poke
+to you on Discord), **search the web**, and **remind you** later — nudging you in
+its own voice when the time comes — all through pi with no extra keys. It also
+connects to your **accounts**: Google Calendar and Gmail out of the box, plus
+anything with an MCP server (Notion, Linear, GitHub, …) — the same apps Poke
 integrates with. Each app loads only when it's configured, and every user links
 their own account right from chat with `connect`.
 
@@ -72,6 +73,9 @@ bun start                 # or: bun dev  (watch mode)
   `accounts` to see what's available. The bot DMs you a consent link; authorize
   once and it can check your calendar, draft and send mail, and so on.
   `disconnect <app>` unlinks.
+- **Set a reminder** — "remind me to call mom in 20 minutes", "remind me tomorrow
+  at 9 to ship the build". It nudges you in its own voice when the time comes, and
+  reminders survive restarts. Ask what's pending or to cancel one too.
 - **`reset`** (also `new chat`, `start over`, `forget it`, `wipe`) — clears that
   conversation's memory.
 
@@ -126,6 +130,7 @@ All via `.env` (see `.env.example`):
 | `POKE_OAUTH_PORT` | `8787` | Port for the local OAuth callback server (account connect). |
 | `POKE_OAUTH_REDIRECT_BASE` | `http://localhost:<port>` | Public base URL providers redirect back to; must match your registered redirect URI. |
 | `POKE_CONNECTIONS_FILE` | `<session dir>/connections.db` | SQLite file of per-user linked-account tokens. |
+| `POKE_REMINDERS_FILE` | `<session dir>/reminders.db` | SQLite file of scheduled reminders. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Google OAuth client; set both to enable Google Calendar + Gmail. |
 | `POKE_AGENT_DIR` | `~/.omp/agent` | Override pi's credential/model dir. |
 
@@ -196,7 +201,7 @@ src/
   config.ts                 env → typed, validated config
   logger.ts                 minimal leveled logger
   outbox.ts                 staged files → uploaded with the next reply
-  actor.ts                  the current speaker each turn (for per-user connections)
+  actor.ts                  the current speaker + channel each turn (connections, reminders)
   connections/              account-linking framework
     oauth.ts                OAuth 2.0 + PKCE helpers, ConnectionSpec, resolveProvider
     store.ts                per-user token store (SQLite)
@@ -205,6 +210,9 @@ src/
     commands.ts             connect / disconnect / accounts parsing
   mcp/
     bridge.ts               load .mcp.json servers → tools (the long tail)
+  reminders/
+    store.ts                scheduled reminders (SQLite, survives restarts)
+    scheduler.ts            polls + fires due reminders (offline catch-up, fire-once)
   pi/
     runtime.ts              pi auth + model discovery + model resolution
     persona.ts              the Poke voice (Discord-adapted), capability-injected
@@ -217,6 +225,8 @@ src/
       filesystem.test.ts    its unit tests
     web-search/             search the web via pi's own providers (no extra key)
       index.ts              the integration
+    reminders/              set / list / cancel; the bot nudges you when due
+      index.ts              the integration
     google/                 shared Google OAuth + API helpers (Calendar, Gmail)
     google-calendar/        list / quick-add / create events (connect google-calendar)
     gmail/                  search / read / send mail (connect gmail)
@@ -227,7 +237,7 @@ src/
   discord/
     delivery.ts             Poke-style message splitting + file uploads (+ tests)
     attachments.ts          image-attachment selection + fetch (+ unit tests)
-    bot.ts                  gateway wiring, gating, typing, reset
+    bot.ts                  gateway wiring, gating, typing, reset, reminder delivery
   index.ts                  entrypoint (wires integrations, connections, MCP, bot)
 scripts/
   smoke.ts                  optional live end-to-end check (no Discord needed)
