@@ -94,6 +94,13 @@ describe("integrationSetupGuide", () => {
     expect(guide).toContain("connect oauthy");
   });
 
+  test("states the exact redirect URI when given, and omits it otherwise", () => {
+    const withUri = integrationSetupGuide(oauthWithSetup, "https://bot.example.com/oauth/callback") ?? "";
+    expect(withUri).toContain("https://bot.example.com/oauth/callback");
+    expect(withUri).toContain("authorized redirect URI");
+    expect(integrationSetupGuide(oauthWithSetup)).not.toContain("redirect URI");
+  });
+
   test("a requires-only app's guide names its env var and skips the connect step", () => {
     const guide = integrationSetupGuide(requiresWithSetup) ?? "";
     expect(guide).toContain("KEYED_API_KEY");
@@ -103,10 +110,11 @@ describe("integrationSetupGuide", () => {
 
   test("real catalog: Google Calendar guides to the OAuth client vars and `connect google-calendar`", () => {
     const calendar = ALL_INTEGRATIONS.find((i) => i.name === "google-calendar");
-    const guide = integrationSetupGuide(calendar!) ?? "";
+    const guide = integrationSetupGuide(calendar!, "http://localhost:8787/oauth/callback") ?? "";
     expect(guide).toContain("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET");
     expect(guide).toContain("connect google-calendar");
     expect(guide).toContain("console.cloud.google.com");
+    expect(guide).toContain("http://localhost:8787/oauth/callback");
   });
 
   test("real catalog: always-on and shell apps declare no setup guide", () => {

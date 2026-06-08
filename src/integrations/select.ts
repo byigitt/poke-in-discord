@@ -14,17 +14,26 @@ import type { Integration } from "./types.ts";
  * toggle). Mirrors {@link builtinSetupGuide} for MCP apps: fact-dense steps —
  * the credential, the env vars to set, the restart, and the `connect` step for
  * OAuth apps — which the assistant rephrases in character.
+ *
+ * For OAuth apps, pass `redirectUri` (the bot's own callback URL): the operator
+ * must register that EXACT value on their OAuth client, and it's the one detail
+ * they can't guess — so the guide states it verbatim instead of hand-waving a
+ * "your-domain/oauth/callback" placeholder.
  */
-export function integrationSetupGuide(integration: Integration): string | null {
+export function integrationSetupGuide(integration: Integration, redirectUri?: string): string | null {
   const { setup, connection } = integration;
   if (!setup) return null;
   const what = integration.capability ?? integration.name;
   const envVars = connection
     ? `${connection.clientIdEnv} and ${connection.clientSecretEnv}`
     : (integration.requires ?? []).join(" and ");
+  const redirectStep =
+    connection && redirectUri
+      ? ` add the bot's own callback URL as an authorized redirect URI, exactly: ${redirectUri};`
+      : "";
   const connectStep = connection ? `, then say \`connect ${connection.provider}\`` : "";
   const note = setup.note ? ` (${setup.note})` : "";
-  return `${what}. Not set up yet — create ${setup.credential}, set ${envVars} in the bot's .env, restart${connectStep}.${note}`;
+  return `${what}. Not set up yet — create ${setup.credential};${redirectStep} set ${envVars} in the bot's .env, restart${connectStep}.${note}`;
 }
 
 /** One integration that couldn't load, and exactly which env vars it's missing. */

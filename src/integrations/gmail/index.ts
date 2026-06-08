@@ -83,7 +83,9 @@ export const gmailIntegration: Integration = {
   ]),
   setup: {
     credential:
-      "a Google OAuth client at console.cloud.google.com (APIs & Services → Credentials → OAuth client ID → Web application), with the Gmail API enabled and <redirect base>/oauth/callback added as an authorized redirect URI",
+      "a Google OAuth client at console.cloud.google.com (APIs & Services → Credentials → OAuth client ID → Web application), with the Gmail API enabled",
+    note:
+      "if the bot runs anywhere other than this machine, set POKE_OAUTH_REDIRECT_BASE to its public URL first so the callback URL matches",
   },
   tools(ctx) {
     return [

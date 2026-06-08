@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   const setupGuides = [
     ...dormantBuiltins(BUILTIN_MCP_SERVERS, process.env).map(builtinSetupGuide),
     ...ALL_INTEGRATIONS.filter((integration) => !enabled.includes(integration))
-      .map(integrationSetupGuide)
+      .map((integration) => integrationSetupGuide(integration, redirectUri))
       .filter((guide): guide is string => guide !== null),
   ];
   const persona = buildPersona({ botName: config.botName, capabilities, setupGuides });
