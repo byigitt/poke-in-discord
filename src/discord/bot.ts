@@ -5,7 +5,7 @@
  * core stays Discord-agnostic.
  */
 import { Client, Events, GatewayIntentBits, type Message, Partials } from "discord.js";
-import type { Config } from "../config.ts";
+import { isOwner, type Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import { type OutboundChannel, extractAssistantText, sendBubbles, sendFiles, toDiscordMessages } from "./delivery.ts";
 import type { ConversationSessions } from "../sessions/store.ts";
@@ -19,6 +19,9 @@ import { ReminderScheduler } from "../reminders/scheduler.ts";
 
 /** Typed verbatim by the user to wipe a conversation's memory. */
 const RESET_PHRASES = ["reset", "/reset", "new chat", "start over", "forget it", "wipe"] as const;
+
+/** Typed verbatim to learn your Discord user ID — the value to put in POKE_OWNER_ID. */
+const WHOAMI_PHRASES = ["whoami", "/whoami", "my id", "my discord id", "who am i"] as const;
 
 const TYPING_REFRESH_MS = 8_000;
 const IMAGE_FETCH_TIMEOUT_MS = 15_000;
@@ -59,6 +62,13 @@ export class DiscordBot {
     this.client.once(Events.ClientReady, (ready) => {
       this.botId = ready.user.id;
       this.logger.info("connected", { tag: ready.user.tag, id: ready.user.id });
+      if (this.config.ownerIds.length === 0) {
+        this.logger.warn(
+          "no POKE_OWNER_ID set — anyone who can DM or @mention this bot can use it, including your files and shared app credentials. DM me `whoami` to get your ID, then set POKE_OWNER_ID to lock me to you.",
+        );
+      } else {
+        this.logger.info("owner-locked", { owners: this.config.ownerIds.length });
+      }
       this.scheduler.start();
     });
     this.client.on(Events.MessageCreate, (message) => {
@@ -80,6 +90,12 @@ export class DiscordBot {
   private intent(message: Message): { key: string; userId: string; text: string; images: SelectedImage[] } | null {
     if (message.author.bot) return null;
     if (!message.channel.isTextBased()) return null;
+    // Personal, self-hosted bot: when an owner is set, ignore everyone else
+    // entirely (this bot runs as you, with your files and shared credentials).
+    if (!isOwner(this.config.ownerIds, message.author.id)) {
+      this.logger.debug("ignored non-owner", { userId: message.author.id });
+      return null;
+    }
 
     const isDM = !message.inGuild();
     const mentioned = this.botId !== null && message.mentions.users.has(this.botId);
@@ -118,6 +134,14 @@ export class DiscordBot {
 
     if (RESET_PHRASES.includes(text.toLowerCase() as (typeof RESET_PHRASES)[number])) {
       await this.handleReset(key, channel);
+      return;
+    }
+
+    // "whoami" — hand the user their Discord ID so they can lock the bot to
+    // themselves via POKE_OWNER_ID. Owner-gating above already ran, so once
+    // locked only the owner reaches this.
+    if (WHOAMI_PHRASES.includes(text.toLowerCase() as (typeof WHOAMI_PHRASES)[number])) {
+      await this.handleWhoami(message);
       return;
     }
 
@@ -188,6 +212,16 @@ export class DiscordBot {
       this.logger.error("reset failed", { key, error });
       await channel.send("couldn't wipe that just now, try again in a sec").catch(() => {});
     }
+  }
+
+  /** DM the user their Discord ID so they can lock the bot to themselves via POKE_OWNER_ID. */
+  private async handleWhoami(message: Message): Promise<void> {
+    const id = message.author.id;
+    const hint =
+      this.config.ownerIds.length === 0
+        ? ` — set \`POKE_OWNER_ID=${id}\` in my .env and restart to lock me to just you.`
+        : ".";
+    await this.deliverPrivately(message, `your Discord user ID is \`${id}\`${hint}`);
   }
 
   /** Handle account-linking commands. Returns true if it consumed the message. */

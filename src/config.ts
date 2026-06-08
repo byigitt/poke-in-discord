@@ -25,6 +25,13 @@ export interface Config {
   readonly thinking: ThinkingLevel;
   /** In servers: answer only on mention/reply, or every message. DMs always answer. */
   readonly respondTo: RespondMode;
+  /**
+   * Discord user IDs allowed to use this bot. This is a personal, self-hosted
+   * assistant — it runs as you, with your files and your shared app credentials —
+   * so lock it to yourself. Empty ⇒ anyone who can reach it (a loud startup
+   * warning fires), which is only safe on a machine and chat you fully control.
+   */
+  readonly ownerIds: readonly string[];
   /** Directory where per-conversation history (memory) is persisted. */
   readonly sessionDir: string;
   /** Evict an idle conversation from memory after this many minutes. */
@@ -87,6 +94,20 @@ function positiveInt(name: string, fallback: number): number {
   return n;
 }
 
+/** Parse a comma/space-separated list of Discord user IDs (e.g. POKE_OWNER_ID). Blank → []. */
+export function parseOwnerIds(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,]+/)
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+/** May this user use the bot? Everyone when no owner is configured, else only listed owners. */
+export function isOwner(ownerIds: readonly string[], userId: string): boolean {
+  return ownerIds.length === 0 || ownerIds.includes(userId);
+}
+
 export function loadConfig(): Config {
   // Hoisted: later fields derive their defaults from these.
   const sessionDir = optional("POKE_SESSION_DIR", ".sessions");
@@ -98,6 +119,7 @@ export function loadConfig(): Config {
     model: process.env.POKE_MODEL?.trim() || undefined,
     thinking: oneOf("POKE_THINKING", THINKING_LEVELS, "off"),
     respondTo: oneOf("POKE_RESPOND_TO", RESPOND_MODES, "mention"),
+    ownerIds: parseOwnerIds(process.env.POKE_OWNER_ID),
     sessionDir,
     sessionIdleMs: positiveInt("POKE_SESSION_IDLE_MINUTES", 30) * 60_000,
     maxReplyMessages: positiveInt("POKE_MAX_REPLY_MESSAGES", 5),

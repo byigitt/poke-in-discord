@@ -5,6 +5,12 @@ like Poke does on iMessage — witty, warm, terse, human, never a corporate
 chatbot — and runs entirely on the **Oh My Pi** agent SDK: it uses pi's own
 authentication (no API keys here) and pi's agent/conversation system as the brain.
 
+It's meant to be **self-hosted and personal**: you run your own copy on your own
+machine, with your own Discord bot and your own accounts — not one shared bot that
+everyone joins. Because it runs as you (your files, your shared app credentials),
+lock it to yourself with `POKE_OWNER_ID` so it answers only you. See
+[Make it yours](#make-it-yours).
+
 It can reach your **files** (find something on the machine it runs on and send it
 to you on Discord), **search the web**, and **remind you** later — nudging you in
 its own voice when the time comes — all through pi with no extra keys. It also
@@ -61,11 +67,34 @@ cp .env.example .env      # then paste your DISCORD_TOKEN
 bun start                 # or: bun dev  (watch mode)
 ```
 
+## Make it yours
+
+This is **your** bot on **your** machine. It runs as you — it can reach your files,
+your reminders, and the app accounts you wire up (your GitHub token, your Gmail,
+etc.) — so by default you don't want strangers talking to it.
+
+Lock it to yourself in two minutes:
+
+1. Start the bot and DM it **`whoami`** — it replies with your Discord user ID.
+   (Or turn on Discord **Developer Mode** → right-click yourself → **Copy User ID**.)
+2. Put that ID in `.env` as `POKE_OWNER_ID=<your-id>` and restart.
+3. Now the bot ignores everyone except you. Add a few trusted IDs comma-separated
+   (`POKE_OWNER_ID=111,222`) if you want to share it with specific people.
+
+Leave `POKE_OWNER_ID` unset only on a machine and chat you fully control — the bot
+logs a loud warning at startup when it's open to anyone who can reach it.
+
+Other touches: set `POKE_BOT_NAME` to whatever you want it to call itself, and
+`POKE_FILES_ROOT` to just the folder it may read from.
+
 ## Using it
 
-- **DM the bot** — it always replies.
+- **DM the bot** — it always replies (to you; see [Make it yours](#make-it-yours)).
 - **In a server** — it replies when you `@mention` it (set `POKE_RESPOND_TO=all`
-  to answer everything in channels it can see).
+  to answer everything in channels it can see). With `POKE_OWNER_ID` set it only
+  ever answers you, mention or not.
+- **`whoami`** — DM it `whoami` and it tells you your Discord user ID, ready to
+  drop into `POKE_OWNER_ID`.
 - **Send a photo** — attach an image (jpeg/png/gif/webp), in a DM or alongside an
   `@mention`, and the bot actually looks at it. Needs a vision-capable model
   (the default Claude models are).
@@ -98,9 +127,10 @@ The file tools are real access to the machine the bot runs on. Everything is
 confined to `POKE_FILES_ROOT` (default: your home folder) — paths that try to
 escape it, including through symlinks, are refused — and reads/uploads are capped
 by `POKE_FILES_MAX_MB`. But within that root the bot can read, **write**, and send
-any file to whoever it's chatting with. So keep it in DMs or a private server, point
-`POKE_FILES_ROOT` at just the folder you want it to reach, and remember that
-anyone it talks to can ask for those files.
+any file to whoever it's chatting with — which is exactly why you set
+`POKE_OWNER_ID` so that "whoever" is just you. Point `POKE_FILES_ROOT` at only the
+folder it should reach, and if you do leave the bot open, remember anyone it talks
+to can ask for those files.
 
 The **shell** integration goes further: with `POKE_SHELL_ENABLED` it runs
 arbitrary commands as your user — that's the point, and exactly why it's off
@@ -112,9 +142,10 @@ and in a chat you trust.
 
 App integrations are **env-gated**: one only loads when its credentials are
 present, so the bot never offers something it can't actually do. Once an app is
-configured, each Discord user links their *own* account from chat — the bot DMs a
-consent link, a small local server catches the OAuth redirect, and the tokens are
-stored per user and refreshed automatically.
+configured, you link your account from chat — the bot DMs a consent link, a small
+local server catches the OAuth redirect, and the token is stored and refreshed
+automatically. (Linking is per Discord user, so if you've shared the bot via
+`POKE_OWNER_ID`, each person links their own.)
 
 **Google (Calendar + Gmail).** Create an OAuth client at the
 [Google Cloud Console](https://console.cloud.google.com) (Web application),
@@ -123,8 +154,9 @@ as an authorized redirect URI, and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRE
 in `.env`. Then, in chat: `connect google-calendar` or `connect gmail`.
 
 **Built-in apps (MCP, in the box).** The popular apps are wired in already — no
-`.mcp.json` needed. Each connects only when its operator-level credential is set
-in `.env`, and then its tools are live for everyone the bot talks to:
+`.mcp.json` needed. Each connects only when you set its credential in `.env`, and
+then its tools are live in your chats (these run on one shared token, so anyone
+you've let in via `POKE_OWNER_ID` uses your account for them):
 
 | App | Credential | How to get it |
 | --- | --- | --- |
@@ -135,11 +167,11 @@ in `.env`, and then its tools are live for everyone the bot talks to:
 | Canva | `CANVA_MCP_TOKEN` | An OAuth access token — short-lived (~4h), so only useful while fresh (Canva's MCP has no long-lived keys). |
 | Hugging Face | `HUGGINGFACE_MCP_TOKEN` | A user access token (`hf_…`). |
 
-These are *operator* credentials (one shared account), unlike Google's per-user
-`connect` — so only point the bot at accounts everyone in the chat may reach. The
-names are deliberately bot-scoped (`*_MCP_TOKEN`), not the providers' usual env
-vars, so a stray `GITHUB_TOKEN` or `STRIPE_SECRET_KEY` in your shell never quietly
-switches an app on.
+These run on a single credential you provide, so they act as your account — which
+is the other reason to keep the bot locked to you with `POKE_OWNER_ID`. The names
+are deliberately bot-scoped (`*_MCP_TOKEN`), not the providers' usual env vars, so
+a stray `GITHUB_TOKEN` or `STRIPE_SECRET_KEY` in your shell never quietly switches
+an app on.
 
 Each built-in app also carries a short "how to turn it on" note (its `setup` field),
 which the bot keeps as a knowledge bank: ask for an app whose credential isn't set
@@ -165,6 +197,7 @@ All via `.env` (see `.env.example`):
 | `POKE_MODEL` | auto | `provider/model-id` (e.g. `anthropic/claude-sonnet-4-5`). Auto-picks a good default from your authenticated models. |
 | `POKE_THINKING` | `off` | `off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`auto`. `off` = snappiest. |
 | `POKE_RESPOND_TO` | `mention` | In servers: `mention` or `all`. DMs always answer. |
+| `POKE_OWNER_ID` | unset (open) | Discord user ID(s) allowed to use the bot, comma-separated. Unset ⇒ anyone who can reach it (warns at startup). DM `whoami` to get yours. |
 | `POKE_SESSION_DIR` | `.sessions` | Where chat history is persisted. |
 | `POKE_SESSION_IDLE_MINUTES` | `30` | Drop an idle chat from memory (history stays on disk). |
 | `POKE_MAX_REPLY_MESSAGES` | `5` | Bubble target for splitting a reply. |
@@ -286,7 +319,7 @@ src/
     cron.ts                 tiny cron evaluator for recurring reminders
   pi/
     runtime.ts              pi auth + model discovery + model resolution
-    persona.ts              the Poke voice (Discord-adapted), capability-injected
+    persona.ts              Poke's own system prompt, Discord-adapted + capability-injected
   integrations/             core stays flat; each integration gets a folder
     types.ts                Integration / IntegrationContext / defineTool + toolText/toolError
     registry.ts             integrations → persona capabilities + deduped tools
