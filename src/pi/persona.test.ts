@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPersona } from "./persona.ts";
+import { buildPersona, connectionStatusSection } from "./persona.ts";
 
 describe("buildPersona", () => {
   test("carries Poke's real identity, voice, and behavior, adapted for Discord", () => {
@@ -56,5 +56,41 @@ describe("buildPersona", () => {
     expect(prompt).not.toContain("walk them through switching it on");
     expect(prompt).not.toContain("One exception");
     expect(prompt).toContain("say you can't do that one yet");
+  });
+});
+
+describe("connectionStatusSection", () => {
+  const catalog = [
+    { id: "gmail", label: "Gmail" },
+    { id: "google-calendar", label: "Google Calendar" },
+  ];
+
+  test("nothing connectable yields no block (stays out of the prompt)", () => {
+    expect(connectionStatusSection([], [])).toBeNull();
+    expect(connectionStatusSection([], ["gmail"])).toBeNull();
+  });
+
+  test("a linked account is stated as fact, with an explicit don't-reconnect rule", () => {
+    // The reported bug: an already-connected user gets told to connect again.
+    const block = connectionStatusSection(catalog, ["gmail"]);
+    expect(block).toContain("Connected, use them directly: Gmail");
+    expect(block).toContain("never tell them to connect one of these again");
+    // Gmail is linked, so it must NOT appear under the connect-this hint.
+    expect(block).not.toContain("connect gmail");
+    // The unlinked one still carries its connect command.
+    expect(block).toContain("Google Calendar (they'd say `connect google-calendar`)");
+  });
+
+  test("when all accounts are linked, there is no leftover connect-this line", () => {
+    const block = connectionStatusSection(catalog, ["gmail", "google-calendar"]);
+    expect(block).toContain("Connected, use them directly: Gmail, Google Calendar");
+    expect(block).not.toContain("Not linked yet");
+  });
+
+  test("when nothing is linked yet, only the connect-this guidance shows", () => {
+    const block = connectionStatusSection(catalog, []);
+    expect(block).not.toContain("Connected, use them directly");
+    expect(block).toContain("Not linked yet: Gmail (they'd say `connect gmail`)");
+    expect(block).toContain("connect google-calendar");
   });
 });

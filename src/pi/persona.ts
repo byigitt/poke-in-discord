@@ -144,6 +144,46 @@ function capabilitySection(capabilities: string[], canGuideSetup: boolean): stri
 }
 
 /**
+ * Live, per-turn account-link status for the person being spoken to, appended to
+ * the system prompt each turn. The static capability list can't know who's
+ * talking or what they've since linked — it only ever says an OAuth app works
+ * "once they connect it", so without ground truth the model hedges and tells an
+ * already-connected user to connect again (the exact bug this fixes). Here we
+ * state, as fact, precisely what THIS user has linked.
+ *
+ * `catalog` is every connectable provider ({ id, label }); `connected` is the
+ * subset this user has actually linked. Returns null when nothing is connectable
+ * (no OAuth app configured), so the block only appears when it carries a true,
+ * actionable fact.
+ */
+export function connectionStatusSection(
+  catalog: readonly { readonly id: string; readonly label: string }[],
+  connected: readonly string[],
+): string | null {
+  if (catalog.length === 0) return null;
+  const linkedIds = new Set(connected);
+  const linked = catalog.filter((p) => linkedIds.has(p.id));
+  const unlinked = catalog.filter((p) => !linkedIds.has(p.id));
+  const lines = [
+    "<connected_accounts>",
+    "Ground truth for the person you're talking to this turn — their real account links right now.",
+    "Trust it over anything the capability list implies; it overrides any \"once they connect it\" hedging.",
+  ];
+  if (linked.length > 0) {
+    lines.push(
+      `- Connected, use them directly: ${linked.map((p) => p.label).join(", ")}. They're linked — never tell them to connect one of these again or claim you can't reach it.`,
+    );
+  }
+  if (unlinked.length > 0) {
+    lines.push(
+      `- Not linked yet: ${unlinked.map((p) => `${p.label} (they'd say \`connect ${p.id}\`)`).join(", ")}.`,
+    );
+  }
+  lines.push("</connected_accounts>");
+  return lines.join("\n");
+}
+
+/**
  * The knowledge bank, rendered for the prompt: apps that exist but aren't wired up
  * yet, each with how to turn it on. The bot brings one up ONLY when the user wants
  * that app — never as an unprompted feature tour.

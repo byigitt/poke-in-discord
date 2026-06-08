@@ -28,6 +28,15 @@ export interface SessionFactoryDeps {
   readonly tools: CustomTool[];
   /** MCP tools — registered via refreshMCPTools (not customTools) so the model can call them. */
   readonly mcpTools: CustomTool[];
+  /**
+   * Live, per-turn account-link status for the speaking user, keyed by session
+   * file. Re-evaluated each prompt and appended to the system prompt so the model
+   * knows which connectable apps THIS user has actually linked — instead of
+   * guessing from the static capability list and asking an already-connected user
+   * to connect again. Returns null when there's nothing to say (no actor between
+   * turns, no connectable apps); omit it entirely when nothing is connectable.
+   */
+  readonly connectionStatus?: (sessionFile: string) => string | null;
   readonly logger: Logger;
 }
 
@@ -77,8 +86,17 @@ export class ConversationSessionFactory {
       model: this.deps.runtime.model,
       thinkingLevel: this.deps.runtime.thinkingLevel,
       // Re-evaluated per prompt, so the model always knows "now" — needed for
-      // reminders ("in 10 min") and calendar/email time math.
-      systemPrompt: () => [this.deps.persona, `The current date and time is ${new Date().toString()}.`],
+      // reminders ("in 10 min") and calendar/email time math — and learns the
+      // speaker's live account links this turn, so it won't tell an
+      // already-connected user to connect again (the static persona can't know).
+      systemPrompt: () => {
+        const status = this.deps.connectionStatus?.(file) ?? null;
+        return [
+          this.deps.persona,
+          ...(status ? [status] : []),
+          `The current date and time is ${new Date().toString()}.`,
+        ];
+      },
       customTools: this.deps.tools,
       sessionManager,
       settings: this.settings,

@@ -6,7 +6,7 @@
  */
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
-import { buildPersona } from "./pi/persona.ts";
+import { buildPersona, connectionStatusSection } from "./pi/persona.ts";
 import { PiRuntime } from "./pi/runtime.ts";
 import { IntegrationRegistry } from "./integrations/registry.ts";
 import { ALL_INTEGRATIONS } from "./integrations/index.ts";
@@ -95,12 +95,29 @@ async function main(): Promise<void> {
     setupGuides: setupGuides.length,
   });
 
+  // Live, per-turn ground truth of the speaker's account links, injected into the
+  // system prompt each turn. Without it the model only sees the static capability
+  // list ("… once they connect it") and can't tell who's connected — so it hedges
+  // and asks an already-linked user to connect again. undefined when nothing is
+  // connectable, leaving the prompt untouched.
+  const connectionCatalog = connections.catalog();
+  const connectionStatus =
+    connectionCatalog.length > 0
+      ? (sessionFile: string): string | null => {
+          const current = actor.current(sessionFile);
+          return current
+            ? connectionStatusSection(connectionCatalog, connections.connections(current.userId))
+            : null;
+        }
+      : undefined;
+
   const conversations = new ConversationSessions({
     runtime,
     config,
     persona,
     tools: integrationTools,
     mcpTools,
+    connectionStatus,
     logger,
   });
   conversations.start();
